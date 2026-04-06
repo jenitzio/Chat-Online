@@ -1,17 +1,3 @@
-/**
- * ╔══════════════════════════════════════════════════════════════╗
- * ║            NEXUS — Real-Time Communication Platform          ║
- * ║    WebRTC · Socket.io · Multiplayer Games · Glassmorphism    ║
- * ╚══════════════════════════════════════════════════════════════╝
- * 
- * Production-ready server with:
- *  - Express static file serving from /public
- *  - Socket.io signaling server for WebRTC
- *  - Room management with password-protected lobbies
- *  - Multiplayer mini-game sync
- *  - Optimized for Render.com deployment
- */
-
 require('dotenv').config();
 
 const express = require('express');
@@ -35,7 +21,7 @@ const io = new Server(server, {
   },
   pingTimeout: 60000,
   pingInterval: 25000,
-  maxHttpBufferSize: 1e7, // 10MB for canvas data
+  maxHttpBufferSize: 1e7,
   transports: ['websocket', 'polling']
 });
 
@@ -48,7 +34,6 @@ const SALT_ROUNDS = 10;
 app.use(compression());
 app.use(cors());
 
-// Helmet with CSP that allows Three.js, WebRTC, and inline styles
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -62,12 +47,21 @@ app.use(helmet({
         "https://unpkg.com",
         "https://cdn.jsdelivr.net"
       ],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
+      styleSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "https://fonts.googleapis.com",
+        "https://cdnjs.cloudflare.com"
+      ],
+      fontSrc: [
+        "'self'",
+        "https://fonts.gstatic.com",
+        "https://cdnjs.cloudflare.com"
+      ],
       imgSrc: ["'self'", "data:", "blob:"],
       connectSrc: ["'self'", "wss:", "ws:", "https:"],
       mediaSrc: ["'self'", "blob:"],
-      workerSrc: ["'self'", "blob:"],
+      workerSrc: ["'self'", "blob:"]
     }
   },
   crossOriginEmbedderPolicy: false,
@@ -81,20 +75,6 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 // ── In-Memory Data Stores ───────────────────────────────────────
-/**
- * rooms: Map<roomId, {
- *   id: string,
- *   name: string,
- *   slug: string,
- *   passwordHash: string,
- *   createdBy: string,
- *   createdAt: Date,
- *   users: Map<socketId, { id, username, isAudioOn, isVideoOn, joinedAt }>,
- *   messages: Array<{ id, username, text, timestamp }>,
- *   canvas: { strokes: Array, backgroundColor: string },
- *   clickerGame: { scores: Map<username, number>, isActive: boolean, endsAt: Date },
- * }>
- */
 const rooms = new Map();
 
 // ── Helper Functions ────────────────────────────────────────────
@@ -113,9 +93,15 @@ function generateJoinCode() {
 
 function sanitize(str) {
   if (typeof str !== 'string') return '';
-  return str.replace(/[<>&"']/g, c => ({
-    '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;'
-  })[c]).substring(0, 500);
+  return str
+    .replace(/[<>&"']/g, c => ({
+      '<': '<',
+      '>': '>',
+      '&': '&',
+      '"': '"',
+      "'": '&#39;'
+    })[c])
+    .substring(0, 500);
 }
 
 function getRoomPublicInfo(room) {
@@ -123,6 +109,7 @@ function getRoomPublicInfo(room) {
   room.users.forEach((user, socketId) => {
     users.push({ ...user, socketId });
   });
+
   return {
     id: room.id,
     name: room.name,
@@ -135,8 +122,6 @@ function getRoomPublicInfo(room) {
 }
 
 // ── REST API Endpoints ──────────────────────────────────────────
-
-// Health check for Render.com
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -146,7 +131,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Create a new room
 app.post('/api/rooms', async (req, res) => {
   try {
     if (rooms.size >= MAX_ROOMS) {
@@ -157,6 +141,7 @@ app.post('/api/rooms', async (req, res) => {
     if (!name || !password || !username) {
       return res.status(400).json({ error: 'Room name, password, and username are required.' });
     }
+
     if (password.length < 4) {
       return res.status(400).json({ error: 'Password must be at least 4 characters.' });
     }
@@ -195,7 +180,6 @@ app.post('/api/rooms', async (req, res) => {
   }
 });
 
-// Verify room exists (by slug or join code)
 app.get('/api/rooms/lookup', (req, res) => {
   const { slug, code } = req.query;
   let foundRoom = null;
@@ -219,7 +203,6 @@ app.get('/api/rooms/lookup', (req, res) => {
   });
 });
 
-// Validate room password (lobby → room transition)
 app.post('/api/rooms/:roomId/validate', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -239,12 +222,10 @@ app.post('/api/rooms/:roomId/validate', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password.' });
     }
 
-    // Generate a one-time token for socket authentication
     const token = uuidv4();
     if (!room.pendingTokens) room.pendingTokens = new Map();
     room.pendingTokens.set(token, { createdAt: Date.now() });
 
-    // Clean expired tokens (older than 60s)
     room.pendingTokens.forEach((val, key) => {
       if (Date.now() - val.createdAt > 60000) room.pendingTokens.delete(key);
     });
@@ -256,12 +237,10 @@ app.post('/api/rooms/:roomId/validate', async (req, res) => {
   }
 });
 
-// Serve the SPA for room routes
 app.get('/room/:slug', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Catch-all: SPA routing
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'Endpoint not found.' });
@@ -269,21 +248,19 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ── Socket.io Signaling & Real-Time Logic ───────────────────────
+// ── Socket.IO Signaling & Real-Time Logic ───────────────────────
 io.on('connection', (socket) => {
   console.log(`[Socket Connected] ${socket.id}`);
 
   let currentRoom = null;
   let currentUser = null;
 
-  // ── Join Room (after lobby password validation) ──
   socket.on('join-room', ({ roomId, token, username }) => {
     const room = rooms.get(roomId);
     if (!room) {
       return socket.emit('error-message', { message: 'Room not found.' });
     }
 
-    // Validate token
     if (!room.pendingTokens || !room.pendingTokens.has(token)) {
       return socket.emit('error-message', { message: 'Invalid or expired token. Please re-enter the password.' });
     }
@@ -309,7 +286,6 @@ io.on('connection', (socket) => {
 
     console.log(`[User Joined] ${sanitizedName} → "${room.name}" (${room.users.size} users)`);
 
-    // Send room state to new user
     socket.emit('room-joined', {
       room: getRoomPublicInfo(room),
       messages: room.messages.slice(-100),
@@ -322,14 +298,12 @@ io.on('connection', (socket) => {
       userId: socket.id
     });
 
-    // Notify existing users
     socket.to(roomId).emit('user-joined', {
       user: { ...currentUser, socketId: socket.id },
       userCount: room.users.size
     });
   });
 
-  // ── WebRTC Signaling ──
   socket.on('webrtc-offer', ({ offer, to }) => {
     socket.to(to).emit('webrtc-offer', { offer, from: socket.id });
   });
@@ -342,11 +316,11 @@ io.on('connection', (socket) => {
     socket.to(to).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
-  // ── Media Toggle ──
   socket.on('toggle-audio', ({ isAudioOn }) => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
     if (!room) return;
+
     currentUser.isAudioOn = isAudioOn;
     room.users.set(socket.id, currentUser);
     socket.to(currentRoom).emit('user-toggle-audio', { socketId: socket.id, isAudioOn });
@@ -356,12 +330,12 @@ io.on('connection', (socket) => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
     if (!room) return;
+
     currentUser.isVideoOn = isVideoOn;
     room.users.set(socket.id, currentUser);
     socket.to(currentRoom).emit('user-toggle-video', { socketId: socket.id, isVideoOn });
   });
 
-  // ── Text Chat ──
   socket.on('chat-message', ({ text }) => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
@@ -375,7 +349,6 @@ io.on('connection', (socket) => {
     };
 
     room.messages.push(message);
-    // Keep only last 200 messages
     if (room.messages.length > 200) {
       room.messages = room.messages.slice(-200);
     }
@@ -383,7 +356,6 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('chat-message', message);
   });
 
-  // ── Typing Indicator ──
   socket.on('typing-start', () => {
     if (!currentRoom || !currentUser) return;
     socket.to(currentRoom).emit('typing-start', { username: currentUser.username });
@@ -394,14 +366,12 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('typing-stop', { username: currentUser.username });
   });
 
-  // ── Shared Drawing Board ──
   socket.on('canvas-draw', (strokeData) => {
     if (!currentRoom) return;
     const room = rooms.get(currentRoom);
     if (!room) return;
 
     room.canvas.strokes.push(strokeData);
-    // Limit stored strokes
     if (room.canvas.strokes.length > 5000) {
       room.canvas.strokes = room.canvas.strokes.slice(-3000);
     }
@@ -418,7 +388,6 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('canvas-clear');
   });
 
-  // ── Clicker Game ──
   socket.on('clicker-start', () => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
@@ -429,7 +398,6 @@ io.on('connection', (socket) => {
     room.clickerGame.scores = new Map();
     room.clickerGame.endsAt = new Date(Date.now() + duration);
 
-    // Initialize scores for all users in room
     room.users.forEach((user) => {
       room.clickerGame.scores.set(user.username, 0);
     });
@@ -440,12 +408,12 @@ io.on('connection', (socket) => {
       startedBy: currentUser.username
     });
 
-    // Auto-end the game
     setTimeout(() => {
       if (room.clickerGame.isActive) {
         room.clickerGame.isActive = false;
         const finalScores = Object.fromEntries(room.clickerGame.scores);
         const winner = Object.entries(finalScores).sort((a, b) => b[1] - a[1])[0];
+
         io.to(currentRoom).emit('clicker-ended', {
           scores: finalScores,
           winner: winner ? { username: winner[0], score: winner[1] } : null
@@ -467,7 +435,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ── Reaction Emojis ──
   socket.on('send-reaction', ({ emoji }) => {
     if (!currentRoom || !currentUser) return;
     io.to(currentRoom).emit('reaction', {
@@ -477,7 +444,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ── Screen Share Signal ──
   socket.on('screen-share-started', () => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('screen-share-started', { socketId: socket.id });
@@ -488,14 +454,15 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('screen-share-stopped', { socketId: socket.id });
   });
 
-  // ── Disconnect ──
   socket.on('disconnect', (reason) => {
     console.log(`[Socket Disconnected] ${socket.id} (${reason})`);
 
     if (currentRoom) {
       const room = rooms.get(currentRoom);
       if (room) {
+        const roomIdToDelete = currentRoom;
         room.users.delete(socket.id);
+
         socket.to(currentRoom).emit('user-left', {
           socketId: socket.id,
           username: currentUser?.username,
@@ -504,13 +471,12 @@ io.on('connection', (socket) => {
 
         console.log(`[User Left] ${currentUser?.username} ← "${room.name}" (${room.users.size} users)`);
 
-        // Clean up empty rooms after 5 minutes
         if (room.users.size === 0) {
           setTimeout(() => {
-            const r = rooms.get(currentRoom);
+            const r = rooms.get(roomIdToDelete);
             if (r && r.users.size === 0) {
-              rooms.delete(currentRoom);
-              console.log(`[Room Deleted] "${room.name}" (empty)`);
+              rooms.delete(roomIdToDelete);
+              console.log(`[Room Deleted] "${r.name}" (empty)`);
             }
           }, 5 * 60 * 1000);
         }
@@ -523,24 +489,23 @@ io.on('connection', (socket) => {
 setInterval(() => {
   const now = Date.now();
   rooms.forEach((room, id) => {
-    // Remove rooms older than 24 hours with no users
     if (room.users.size === 0 && now - room.createdAt.getTime() > 24 * 60 * 60 * 1000) {
       rooms.delete(id);
       console.log(`[Cleanup] Removed stale room "${room.name}"`);
     }
   });
-}, 30 * 60 * 1000); // Every 30 minutes
+}, 30 * 60 * 1000);
 
 // ── Start Server ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`
-  ╔══════════════════════════════════════════════════╗
-  ║     🚀 NEXUS Platform running on port ${PORT}       ║
-  ║     📡 Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║
-  ║     🌐 http://localhost:${PORT}                    ║
-  ╚══════════════════════════════════════════════════╝
-  `);
+╔══════════════════════════════════════════════════╗
+║ 🚀 NEXUS Platform running on port ${PORT} ║
+║ 📡 Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║
+║ 🌐 http://localhost:${PORT} ║
+╚══════════════════════════════════════════════════╝
+`);
 });
 
 // ── Graceful Shutdown ───────────────────────────────────────────
