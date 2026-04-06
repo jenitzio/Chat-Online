@@ -1,0 +1,15 @@
+# Render.com Blueprint — Infrastructure as Code
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: nexus-platform
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
