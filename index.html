@@ -2,23 +2,309 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  />
-  <title>NEXUS — Real-Time Platform</title>
-  <link rel="stylesheet" href="/styles.css" />
-  <script src="/socket.io/socket.io.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NEXUS Chat Platform</title>
+  <script src="https://chat-online-yon4.onrender.com/socket.io/socket.io.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #0f172a, #1e293b, #0f172a);
+      color: white;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .app-shell {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .topbar {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .topbar h1 {
+      font-size: 2.4rem;
+      margin-bottom: 8px;
+      color: #60a5fa;
+    }
+
+    .topbar p {
+      color: #cbd5e1;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(12px);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+    }
+
+    .view {
+      display: none;
+    }
+
+    .view.active {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .two-cols {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .panel {
+      background: rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    h2, h3 {
+      margin-bottom: 14px;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    input, button, textarea {
+      width: 100%;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 1rem;
+    }
+
+    input, textarea {
+      background: rgba(255,255,255,0.92);
+      color: #111827;
+    }
+
+    button {
+      background: #3b82f6;
+      color: white;
+      cursor: pointer;
+      font-weight: bold;
+      transition: 0.2s ease;
+    }
+
+    button:hover {
+      background: #2563eb;
+    }
+
+    button.secondary {
+      background: #475569;
+    }
+
+    button.secondary:hover {
+      background: #334155;
+    }
+
+    button.success {
+      background: #10b981;
+    }
+
+    button.success:hover {
+      background: #059669;
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      display: none;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .status.show {
+      display: block;
+    }
+
+    .status.error {
+      background: rgba(239, 68, 68, 0.18);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #fecaca;
+    }
+
+    .status.success {
+      background: rgba(16, 185, 129, 0.18);
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      color: #bbf7d0;
+    }
+
+    .room-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .room-meta {
+      color: #cbd5e1;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .room-layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 20px;
+    }
+
+    .sidebar, .main-panel {
+      background: rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    .users-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .users-list li {
+      background: rgba(255,255,255,0.07);
+      padding: 10px;
+      border-radius: 10px;
+      color: #e2e8f0;
+    }
+
+    .chat-box {
+      height: 320px;
+      overflow-y: auto;
+      background: rgba(15, 23, 42, 0.55);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 10px;
+    }
+
+    .message strong {
+      color: #93c5fd;
+    }
+
+    .message small {
+      display: block;
+      margin-top: 4px;
+      color: #94a3b8;
+    }
+
+    .chat-form {
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-form input {
+      flex: 1;
+    }
+
+    .typing {
+      min-height: 22px;
+      color: #cbd5e1;
+      font-size: 0.92rem;
+      margin-bottom: 8px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 16px 0;
+    }
+
+    .toolbar button {
+      width: auto;
+      min-width: 120px;
+    }
+
+    .reactions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .reaction-btn {
+      width: auto;
+      min-width: 60px;
+      font-size: 1.2rem;
+      padding: 10px 14px;
+    }
+
+    .reaction-feed {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .reaction-item {
+      background: rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: #e2e8f0;
+    }
+
+    .info-box {
+      background: rgba(255,255,255,0.06);
+      padding: 12px;
+      border-radius: 12px;
+      margin-bottom: 14px;
+      line-height: 1.6;
+      color: #e2e8f0;
+    }
+
+    @media (max-width: 900px) {
+      .room-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <h1>NEXUS</h1>
-      <p>Real-time rooms, chat, canvas, and clicker game</p>
+      <p>Create rooms, join friends, and chat through your Render backend</p>
     </header>
 
     <main class="container">
-      <!-- Home View -->
+      <!-- HOME -->
       <section id="homeView" class="card view active">
         <h2>Create or Join a Room</h2>
 
@@ -26,146 +312,475 @@
           <div class="panel">
             <h3>Create Room</h3>
             <form id="createRoomForm">
-              <label>
-                Your name
-                <input type="text" id="createUsername" maxlength="50" required />
-              </label>
-
-              <label>
-                Room name
-                <input type="text" id="roomName" maxlength="100" required />
-              </label>
-
-              <label>
-                Room password
-                <input type="password" id="roomPassword" minlength="4" required />
-              </label>
-
+              <input id="createRoomName" type="text" placeholder="Room name" required />
+              <input id="createRoomPassword" type="password" placeholder="Room password" required />
+              <input id="createUsername" type="text" placeholder="Your username" required />
               <button type="submit">Create Room</button>
             </form>
           </div>
 
           <div class="panel">
             <h3>Join Room</h3>
-            <form id="lookupRoomForm">
-              <label>
-                Your name
-                <input type="text" id="joinUsername" maxlength="50" required />
-              </label>
-
-              <label>
-                Room slug or join code
-                <input
-                  type="text"
-                  id="roomLookup"
-                  placeholder="e.g. cosmic-nexus-1234 or ABC123"
-                  required
-                />
-              </label>
-
-              <button type="submit">Find Room</button>
+            <form id="joinLookupForm">
+              <input id="joinRoomSlugOrCode" type="text" placeholder="Room slug or join code" required />
+              <input id="joinRoomPassword" type="password" placeholder="Room password" required />
+              <input id="joinUsername" type="text" placeholder="Your username" required />
+              <button type="submit" class="success">Find & Join Room</button>
             </form>
           </div>
         </div>
 
-        <div id="homeMessage" class="message"></div>
+        <div id="homeStatus" class="status"></div>
       </section>
 
-      <!-- Lobby View -->
-      <section id="lobbyView" class="card view">
-        <h2>Room Lobby</h2>
-
-        <div class="room-summary">
-          <p><strong>Name:</strong> <span id="lobbyRoomName">-</span></p>
-          <p><strong>Slug:</strong> <span id="lobbyRoomSlug">-</span></p>
-          <p><strong>Users:</strong> <span id="lobbyUserCount">0</span></p>
-          <p><strong>Max users:</strong> <span id="lobbyMaxUsers">0</span></p>
-        </div>
-
-        <form id="validatePasswordForm">
-          <label>
-            Enter room password
-            <input type="password" id="joinPassword" minlength="4" required />
-          </label>
-
-          <div class="actions">
-            <button type="submit">Enter Room</button>
-            <button type="button" id="backToHomeBtn" class="secondary">Back</button>
-          </div>
-        </form>
-
-        <div id="lobbyMessage" class="message"></div>
-      </section>
-
-      <!-- Room View -->
+      <!-- ROOM -->
       <section id="roomView" class="card view">
         <div class="room-header">
           <div>
             <h2 id="roomTitle">Room</h2>
-            <p>
-              Join code:
-              <strong id="roomJoinCode">-</strong>
-            </p>
+            <div id="roomMeta" class="room-meta"></div>
           </div>
           <button id="leaveRoomBtn" class="secondary">Leave Room</button>
         </div>
 
-        <div class="grid room-grid">
-          <div class="panel">
+        <div class="room-layout">
+          <aside class="sidebar">
             <h3>Users</h3>
-            <ul id="userList" class="user-list"></ul>
+            <ul id="usersList" class="users-list"></ul>
 
-            <div class="actions wrap">
+            <div class="toolbar">
               <button id="toggleAudioBtn">Mute Audio</button>
               <button id="toggleVideoBtn">Turn Off Video</button>
-              <button id="sendReactionBtn" class="secondary">Send 🔥</button>
             </div>
-          </div>
 
-          <div class="panel">
+            <h3>Reactions</h3>
+            <div class="reactions">
+              <button class="reaction-btn" data-emoji="👍">👍</button>
+              <button class="reaction-btn" data-emoji="🔥">🔥</button>
+              <button class="reaction-btn" data-emoji="😂">😂</button>
+              <button class="reaction-btn" data-emoji="🎉">🎉</button>
+              <button class="reaction-btn" data-emoji="❤️">❤️</button>
+            </div>
+
+            <div id="reactionFeed" class="reaction-feed"></div>
+          </aside>
+
+          <section class="main-panel">
+            <div class="info-box">
+              <div><strong>Backend:</strong> https://chat-online-yon4.onrender.com</div>
+              <div><strong>Socket:</strong> connected through Render</div>
+            </div>
+
             <h3>Chat</h3>
-            <div id="chatMessages" class="chat-box"></div>
-
-            <div id="typingIndicator" class="typing-indicator"></div>
+            <div id="typingIndicator" class="typing"></div>
+            <div id="chatBox" class="chat-box"></div>
 
             <form id="chatForm" class="chat-form">
-              <input
-                type="text"
-                id="chatInput"
-                placeholder="Type a message..."
-                maxlength="500"
-                autocomplete="off"
-              />
+              <input id="chatInput" type="text" placeholder="Type your message..." autocomplete="off" />
               <button type="submit">Send</button>
             </form>
-          </div>
 
-          <div class="panel">
-            <h3>Shared Canvas</h3>
-            <canvas id="drawCanvas" width="700" height="300"></canvas>
-
-            <div class="actions wrap">
-              <button id="clearCanvasBtn" class="secondary">Clear Canvas</button>
-            </div>
-          </div>
-
-          <div class="panel">
-            <h3>Clicker Game</h3>
-            <div id="clickerStatus">Not started</div>
-            <div id="clickerScores" class="scores"></div>
-
-            <div class="actions wrap">
-              <button id="startClickerBtn">Start Game</button>
-              <button id="clickerBtn">Click!</button>
-            </div>
-          </div>
+            <div id="roomStatus" class="status"></div>
+          </section>
         </div>
-
-        <div id="roomMessage" class="message"></div>
       </section>
     </main>
   </div>
 
-  <script src="/app.js"></script>
+  <script>
+    const API_BASE = 'https://chat-online-yon4.onrender.com';
+    const SOCKET_URL = 'https://chat-online-yon4.onrender.com';
+
+    let socket = null;
+    let currentRoomId = null;
+    let currentUsername = null;
+    let authToken = null;
+    let currentRoomData = null;
+    let isAudioOn = true;
+    let isVideoOn = true;
+    let typingTimeout = null;
+
+    const homeView = document.getElementById('homeView');
+    const roomView = document.getElementById('roomView');
+
+    const createRoomForm = document.getElementById('createRoomForm');
+    const createRoomName = document.getElementById('createRoomName');
+    const createRoomPassword = document.getElementById('createRoomPassword');
+    const createUsername = document.getElementById('createUsername');
+
+    const joinLookupForm = document.getElementById('joinLookupForm');
+    const joinRoomSlugOrCode = document.getElementById('joinRoomSlugOrCode');
+    const joinRoomPassword = document.getElementById('joinRoomPassword');
+    const joinUsername = document.getElementById('joinUsername');
+
+    const homeStatus = document.getElementById('homeStatus');
+    const roomStatus = document.getElementById('roomStatus');
+
+    const roomTitle = document.getElementById('roomTitle');
+    const roomMeta = document.getElementById('roomMeta');
+    const usersList = document.getElementById('usersList');
+    const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+
+    const chatBox = document.getElementById('chatBox');
+    const chatForm = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    const typingIndicator = document.getElementById('typingIndicator');
+
+    const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+    const toggleVideoBtn = document.getElementById('toggleVideoBtn');
+    const reactionFeed = document.getElementById('reactionFeed');
+
+    function showStatus(el, message, type = 'error') {
+      el.textContent = message;
+      el.className = `status show ${type}`;
+    }
+
+    function clearStatus(el) {
+      el.textContent = '';
+      el.className = 'status';
+    }
+
+    function switchView(view) {
+      homeView.classList.remove('active');
+      roomView.classList.remove('active');
+      view.classList.add('active');
+    }
+
+    async function safeJson(response) {
+      const contentType = response.headers.get('content-type') || '';
+      const text = await response.text();
+
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Expected JSON but got ${contentType || 'unknown content-type'}.\nServer response:\n${text.substring(0, 300)}`);
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(`Invalid JSON response:\n${text.substring(0, 300)}`);
+      }
+    }
+
+    function renderUsers(users = []) {
+      usersList.innerHTML = '';
+
+      if (!users.length) {
+        usersList.innerHTML = '<li>No users in room</li>';
+        return;
+      }
+
+      users.forEach(user => {
+        const li = document.createElement('li');
+        li.textContent = `${user.username} ${user.isAudioOn === false ? '🔇' : '🎤'} ${user.isVideoOn === false ? '📷 off' : '📷 on'}`;
+        usersList.appendChild(li);
+      });
+    }
+
+    function addMessage(message) {
+      const div = document.createElement('div');
+      div.className = 'message';
+
+      const date = new Date(message.timestamp || Date.now());
+
+      div.innerHTML = `
+        <strong>${escapeHtml(message.username || 'Unknown')}</strong>
+        <div>${escapeHtml(message.text || '')}</div>
+        <small>${date.toLocaleString()}</small>
+      `;
+
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function addSystemMessage(text) {
+      const div = document.createElement('div');
+      div.className = 'message';
+      div.innerHTML = `<strong>System</strong><div>${escapeHtml(text)}</div>`;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function addReaction(username, emoji) {
+      const div = document.createElement('div');
+      div.className = 'reaction-item';
+      div.textContent = `${username} reacted ${emoji}`;
+      reactionFeed.prepend(div);
+
+      while (reactionFeed.children.length > 8) {
+        reactionFeed.removeChild(reactionFeed.lastChild);
+      }
+    }
+
+    function updateRoomHeader(room) {
+      roomTitle.textContent = room.name || 'Room';
+      roomMeta.innerHTML = `
+        <div><strong>Slug:</strong> ${escapeHtml(room.slug || '')}</div>
+        <div><strong>Join code:</strong> ${escapeHtml(room.joinCode || '')}</div>
+        <div><strong>Users:</strong> ${room.userCount || 0}</div>
+      `;
+    }
+
+    function connectSocket() {
+      if (socket) {
+        socket.disconnect();
+      }
+
+      socket = io(SOCKET_URL, {
+        transports: ['websocket', 'polling']
+      });
+
+      socket.on('connect', () => {
+        clearStatus(roomStatus);
+      });
+
+      socket.on('connect_error', (err) => {
+        showStatus(roomStatus, `Socket connection failed: ${err.message}`, 'error');
+      });
+
+      socket.on('error-message', (data) => {
+        showStatus(roomStatus, data.message || 'An error occurred.', 'error');
+      });
+
+      socket.on('room-joined', (data) => {
+        currentRoomData = data.room;
+        updateRoomHeader(data.room);
+        renderUsers(data.room.users || []);
+
+        chatBox.innerHTML = '';
+        (data.messages || []).forEach(addMessage);
+
+        switchView(roomView);
+        showStatus(roomStatus, 'Joined room successfully.', 'success');
+      });
+
+      socket.on('user-joined', (data) => {
+        addSystemMessage(`${data.user.username} joined the room.`);
+        if (currentRoomData) {
+          currentRoomData.userCount = data.userCount;
+          currentRoomData.users = currentRoomData.users || [];
+          currentRoomData.users.push(data.user);
+          updateRoomHeader(currentRoomData);
+          renderUsers(currentRoomData.users);
+        }
+      });
+
+      socket.on('user-left', (data) => {
+        addSystemMessage(`${data.username || 'A user'} left the room.`);
+        if (currentRoomData) {
+          currentRoomData.userCount = data.userCount;
+          currentRoomData.users = (currentRoomData.users || []).filter(u => u.socketId !== data.socketId);
+          updateRoomHeader(currentRoomData);
+          renderUsers(currentRoomData.users);
+        }
+      });
+
+      socket.on('user-toggle-audio', ({ socketId, isAudioOn }) => {
+        if (!currentRoomData || !currentRoomData.users) return;
+        currentRoomData.users = currentRoomData.users.map(u => u.socketId === socketId ? { ...u, isAudioOn } : u);
+        renderUsers(currentRoomData.users);
+      });
+
+      socket.on('user-toggle-video', ({ socketId, isVideoOn }) => {
+        if (!currentRoomData || !currentRoomData.users) return;
+        currentRoomData.users = currentRoomData.users.map(u => u.socketId === socketId ? { ...u, isVideoOn } : u);
+        renderUsers(currentRoomData.users);
+      });
+
+      socket.on('chat-message', (message) => {
+        addMessage(message);
+      });
+
+      socket.on('typing-start', ({ username }) => {
+        typingIndicator.textContent = `${username} is typing...`;
+      });
+
+      socket.on('typing-stop', () => {
+        typingIndicator.textContent = '';
+      });
+
+      socket.on('reaction', ({ username, emoji }) => {
+        addReaction(username, emoji);
+      });
+
+      socket.on('server-shutdown', ({ message }) => {
+        showStatus(roomStatus, message || 'Server is restarting.', 'error');
+      });
+    }
+
+    async function createRoom(name, password, username) {
+      clearStatus(homeStatus);
+
+      const response = await fetch(`${API_BASE}/api/rooms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password, username })
+      });
+
+      const data = await safeJson(response);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create room.');
+      }
+
+      showStatus(
+        homeStatus,
+        `Room created successfully.\nRoom name: ${data.name}\nSlug: ${data.slug}\nJoin code: ${data.joinCode}\nNow validating password and joining...`,
+        'success'
+      );
+
+      return data;
+    }
+
+    async function lookupRoom(identifier) {
+      const isCode = !identifier.includes('-') && identifier.length <= 10;
+      const url = isCode
+        ? `${API_BASE}/api/rooms/lookup?code=${encodeURIComponent(identifier)}`
+        : `${API_BASE}/api/rooms/lookup?slug=${encodeURIComponent(identifier)}`;
+
+      const response = await fetch(url);
+      const data = await safeJson(response);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Room lookup failed.');
+      }
+
+      return data;
+    }
+
+    async function validateRoom(roomId, password) {
+      const response = await fetch(`${API_BASE}/api/rooms/${encodeURIComponent(roomId)}/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+
+      const data = await safeJson(response);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Password validation failed.');
+      }
+
+      return data;
+    }
+
+    async function joinRoomFlow(roomId, username, password) {
+      currentRoomId = roomId;
+      currentUsername = username;
+
+      const validation = await validateRoom(roomId, password);
+      authToken = validation.token;
+
+      connectSocket();
+
+      socket.on('connect', () => {
+        socket.emit('join-room', {
+          roomId: currentRoomId,
+          token: authToken,
+          username: currentUsername
+        });
+      });
+    }
+
+    createRoomForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const name = createRoomName.value.trim();
+      const password = createRoomPassword.value.trim();
+      const username = createUsername.value.trim();
+
+      try {
+        const created = await createRoom(name, password, username);
+        await joinRoomFlow(created.roomId, username, password);
+      } catch (err) {
+        showStatus(homeStatus, err.message, 'error');
+      }
+    });
+
+    joinLookupForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const identifier = joinRoomSlugOrCode.value.trim();
+      const password = joinRoomPassword.value.trim();
+      const username = joinUsername.value.trim();
+
+      try {
+        clearStatus(homeStatus);
+        const room = await lookupRoom(identifier);
+        await joinRoomFlow(room.roomId, username, password);
+      } catch (err) {
+        showStatus(homeStatus, err.message, 'error');
+      }
+    });
+
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (!text || !socket) return;
+
+      socket.emit('chat-message', { text });
+      socket.emit('typing-stop');
+      chatInput.value = '';
+      typingIndicator.textContent = '';
+    });
+
+    chatInput.addEventListener('input', () => {
+      if (!socket) return;
+
+      socket.emit('typing-start');
+
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        if (socket) socket.emit('typing-stop');
+      }, 1000);
+    });
+
+    toggleAudioBtn.addEventListener('click', () => {
+      if (!socket) return;
+      isAudioOn = !isAudioOn;
+      socket.emit('toggle-audio', { isAudioOn });
+      toggleAudioBtn.textContent = isAudioOn ? 'Mute Audio' : 'Unmute Audio';
+    });
+
+    toggleVideoBtn.addEventListener('click', () => {
+      if (!socket) return;
+      isVideoOn = !isVideoOn;
+      socket.emit('toggle-video', { isVideoOn });
+      toggleVideoBtn.textContent = isVideoOn ? 'Turn Off Video' : 'Turn On Video';
+    });
+
+    document.querySelectorAll('.reaction-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!socket) return;
+        socket.emit('send-reaction', { emoji: btn.dataset.emoji });
+      });
+    });
+
+    leaveRoomBtn.addEventListener('click', () => {
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+      }
+
+      currentRoomId = null;
+      currentUsername = null;
+      authToken = null;
+      currentRoomData = null;
+      chatBox.innerHTML = '';
+      usersList.innerHTML = '';
+      reactionFeed.innerHTML = '';
+      typingIndicator.textContent = '';
+      clearStatus(roomStatus);
+      switchView(homeView);
+    });
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll('&', '&')
+        .replaceAll('<', '<')
+        .replaceAll('>', '>')
+        .replaceAll('"', '"')
+        .replaceAll("'", '&#39;');
+    }
+  </script>
 </body>
 </html>
