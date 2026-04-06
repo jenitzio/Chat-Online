@@ -15,10 +15,10 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: process.env.NODE_ENV === 'production' ? false : '*',
-    methods: ['GET', 'POST']
-  },
+cors: {
+  origin: process.env.CLIENT_URL || true,
+  methods: ['GET', 'POST']
+}
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e7,
