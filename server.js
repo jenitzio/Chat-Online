@@ -1,3 +1,17 @@
+/**
+ * ╔══════════════════════════════════════════════════════════════╗
+ * ║ NEXUS — Real-Time Communication Platform                   ║
+ * ║ WebRTC · Socket.IO · Multiplayer Games · Glassmorphism    ║
+ * ╚══════════════════════════════════════════════════════════════╝
+ *
+ * Production-ready server with:
+ * - Express static file serving from /public
+ * - Socket.IO signaling server for WebRTC
+ * - Room management with password-protected lobbies
+ * - Multiplayer mini-game sync
+ * - Optimized for Render.com deployment
+ */
+
 require('dotenv').config();
 
 const express = require('express');
@@ -15,10 +29,10 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-cors: {
-  origin: process.env.CLIENT_URL || true,
-  methods: ['GET', 'POST']
-}
+  cors: {
+    origin: process.env.NODE_ENV === 'production' ? false : '*',
+    methods: ['GET', 'POST']
+  },
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e7,
@@ -26,53 +40,57 @@ cors: {
 });
 
 // ── Constants ───────────────────────────────────────────────────
-const MAX_ROOMS = parseInt(process.env.MAX_ROOMS) || 100;
-const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM) || 12;
+const MAX_ROOMS = parseInt(process.env.MAX_ROOMS || '100', 10);
+const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM || '12', 10);
 const SALT_ROUNDS = 10;
 
-// ── Middleware ───────────────────────────────────────────────────
+// ── Middleware ──────────────────────────────────────────────────
 app.use(compression());
 app.use(cors());
-
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: [
-        "'self'",
-        "'unsafe-inline'",
-        "'unsafe-eval'",
-        "https://cdnjs.cloudflare.com",
-        "https://cdn.socket.io",
-        "https://unpkg.com",
-        "https://cdn.jsdelivr.net"
-      ],
-      styleSrc: [
-        "'self'",
-        "'unsafe-inline'",
-        "https://fonts.googleapis.com",
-        "https://cdnjs.cloudflare.com"
-      ],
-      fontSrc: [
-        "'self'",
-        "https://fonts.gstatic.com",
-        "https://cdnjs.cloudflare.com"
-      ],
-      imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", "wss:", "ws:", "https:"],
-      mediaSrc: ["'self'", "blob:"],
-      workerSrc: ["'self'", "blob:"]
-    }
-  },
-  crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false
-}));
-
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
-  etag: true
-}));
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          'https://cdnjs.cloudflare.com',
+          'https://cdn.socket.io',
+          'https://unpkg.com',
+          'https://cdn.jsdelivr.net'
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          'https://fonts.googleapis.com',
+          'https://cdnjs.cloudflare.com'
+        ],
+        fontSrc: [
+          "'self'",
+          'https://fonts.gstatic.com',
+          'https://cdnjs.cloudflare.com'
+        ],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'", 'wss:', 'ws:', 'https:'],
+        mediaSrc: ["'self'", 'blob:'],
+        workerSrc: ["'self'", 'blob:']
+      }
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false
+  })
+);
+
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
+    etag: true
+  })
+);
 
 // ── In-Memory Data Stores ───────────────────────────────────────
 const rooms = new Map();
@@ -94,13 +112,13 @@ function generateJoinCode() {
 function sanitize(str) {
   if (typeof str !== 'string') return '';
   return str
-    .replace(/[<>&"']/g, c => ({
+    .replace(/[<>&"']/g, (c) => ({
       '<': '<',
       '>': '>',
       '&': '&',
       '"': '"',
       "'": '&#39;'
-    })[c])
+    }[c]))
     .substring(0, 500);
 }
 
@@ -122,6 +140,8 @@ function getRoomPublicInfo(room) {
 }
 
 // ── REST API Endpoints ──────────────────────────────────────────
+
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -131,6 +151,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Create room
 app.post('/api/rooms', async (req, res) => {
   try {
     if (rooms.size >= MAX_ROOMS) {
@@ -138,6 +159,7 @@ app.post('/api/rooms', async (req, res) => {
     }
 
     const { name, password, username } = req.body;
+
     if (!name || !password || !username) {
       return res.status(400).json({ error: 'Room name, password, and username are required.' });
     }
@@ -162,10 +184,12 @@ app.post('/api/rooms', async (req, res) => {
       users: new Map(),
       messages: [],
       canvas: { strokes: [], backgroundColor: '#1a1a2e' },
-      clickerGame: { scores: new Map(), isActive: false, endsAt: null, duration: 15 }
+      clickerGame: { scores: new Map(), isActive: false, endsAt: null, duration: 15 },
+      pendingTokens: new Map()
     };
 
     rooms.set(roomId, room);
+
     console.log(`[Room Created] "${room.name}" (${slug}) by ${room.createdBy}`);
 
     res.status(201).json({
@@ -180,12 +204,13 @@ app.post('/api/rooms', async (req, res) => {
   }
 });
 
+// Lookup room by slug or code
 app.get('/api/rooms/lookup', (req, res) => {
   const { slug, code } = req.query;
   let foundRoom = null;
 
-  rooms.forEach(room => {
-    if ((slug && room.slug === slug) || (code && room.joinCode === code.toUpperCase())) {
+  rooms.forEach((room) => {
+    if ((slug && room.slug === slug) || (code && room.joinCode === String(code).toUpperCase())) {
       foundRoom = room;
     }
   });
@@ -203,10 +228,12 @@ app.get('/api/rooms/lookup', (req, res) => {
   });
 });
 
+// Validate room password
 app.post('/api/rooms/:roomId/validate', async (req, res) => {
   try {
     const { roomId } = req.params;
     const { password } = req.body;
+
     const room = rooms.get(roomId);
 
     if (!room) {
@@ -218,16 +245,18 @@ app.post('/api/rooms/:roomId/validate', async (req, res) => {
     }
 
     const isValid = await bcrypt.compare(password, room.passwordHash);
+
     if (!isValid) {
       return res.status(401).json({ error: 'Incorrect password.' });
     }
 
     const token = uuidv4();
-    if (!room.pendingTokens) room.pendingTokens = new Map();
     room.pendingTokens.set(token, { createdAt: Date.now() });
 
     room.pendingTokens.forEach((val, key) => {
-      if (Date.now() - val.createdAt > 60000) room.pendingTokens.delete(key);
+      if (Date.now() - val.createdAt > 60000) {
+        room.pendingTokens.delete(key);
+      }
     });
 
     res.json({ valid: true, token });
@@ -237,18 +266,22 @@ app.post('/api/rooms/:roomId/validate', async (req, res) => {
   }
 });
 
+// SPA room route
 app.get('/room/:slug', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// API 404 fallback
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Endpoint not found.' });
+});
+
+// Catch-all frontend route
 app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'Endpoint not found.' });
-  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ── Socket.IO Signaling & Real-Time Logic ───────────────────────
+// ── Socket.IO Logic ─────────────────────────────────────────────
 io.on('connection', (socket) => {
   console.log(`[Socket Connected] ${socket.id}`);
 
@@ -257,13 +290,17 @@ io.on('connection', (socket) => {
 
   socket.on('join-room', ({ roomId, token, username }) => {
     const room = rooms.get(roomId);
+
     if (!room) {
       return socket.emit('error-message', { message: 'Room not found.' });
     }
 
     if (!room.pendingTokens || !room.pendingTokens.has(token)) {
-      return socket.emit('error-message', { message: 'Invalid or expired token. Please re-enter the password.' });
+      return socket.emit('error-message', {
+        message: 'Invalid or expired token. Please re-enter the password.'
+      });
     }
+
     room.pendingTokens.delete(token);
 
     if (room.users.size >= MAX_USERS_PER_ROOM) {
@@ -304,6 +341,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // WebRTC
   socket.on('webrtc-offer', ({ offer, to }) => {
     socket.to(to).emit('webrtc-offer', { offer, from: socket.id });
   });
@@ -316,6 +354,7 @@ io.on('connection', (socket) => {
     socket.to(to).emit('webrtc-ice-candidate', { candidate, from: socket.id });
   });
 
+  // Media toggle
   socket.on('toggle-audio', ({ isAudioOn }) => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
@@ -323,7 +362,11 @@ io.on('connection', (socket) => {
 
     currentUser.isAudioOn = isAudioOn;
     room.users.set(socket.id, currentUser);
-    socket.to(currentRoom).emit('user-toggle-audio', { socketId: socket.id, isAudioOn });
+
+    socket.to(currentRoom).emit('user-toggle-audio', {
+      socketId: socket.id,
+      isAudioOn
+    });
   });
 
   socket.on('toggle-video', ({ isVideoOn }) => {
@@ -333,22 +376,31 @@ io.on('connection', (socket) => {
 
     currentUser.isVideoOn = isVideoOn;
     room.users.set(socket.id, currentUser);
-    socket.to(currentRoom).emit('user-toggle-video', { socketId: socket.id, isVideoOn });
+
+    socket.to(currentRoom).emit('user-toggle-video', {
+      socketId: socket.id,
+      isVideoOn
+    });
   });
 
+  // Chat
   socket.on('chat-message', ({ text }) => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
     if (!room) return;
 
+    const cleanText = sanitize(text);
+    if (!cleanText.trim()) return;
+
     const message = {
       id: uuidv4(),
       username: currentUser.username,
-      text: sanitize(text),
+      text: cleanText,
       timestamp: new Date().toISOString()
     };
 
     room.messages.push(message);
+
     if (room.messages.length > 200) {
       room.messages = room.messages.slice(-200);
     }
@@ -356,6 +408,7 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('chat-message', message);
   });
 
+  // Typing
   socket.on('typing-start', () => {
     if (!currentRoom || !currentUser) return;
     socket.to(currentRoom).emit('typing-start', { username: currentUser.username });
@@ -366,12 +419,14 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('typing-stop', { username: currentUser.username });
   });
 
+  // Canvas
   socket.on('canvas-draw', (strokeData) => {
     if (!currentRoom) return;
     const room = rooms.get(currentRoom);
     if (!room) return;
 
     room.canvas.strokes.push(strokeData);
+
     if (room.canvas.strokes.length > 5000) {
       room.canvas.strokes = room.canvas.strokes.slice(-3000);
     }
@@ -388,6 +443,7 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('canvas-clear');
   });
 
+  // Clicker game
   socket.on('clicker-start', () => {
     if (!currentRoom || !currentUser) return;
     const room = rooms.get(currentRoom);
@@ -435,8 +491,10 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Reactions
   socket.on('send-reaction', ({ emoji }) => {
     if (!currentRoom || !currentUser) return;
+
     io.to(currentRoom).emit('reaction', {
       emoji,
       username: currentUser.username,
@@ -444,6 +502,7 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Screen share
   socket.on('screen-share-started', () => {
     if (!currentRoom) return;
     socket.to(currentRoom).emit('screen-share-started', { socketId: socket.id });
@@ -454,16 +513,19 @@ io.on('connection', (socket) => {
     socket.to(currentRoom).emit('screen-share-stopped', { socketId: socket.id });
   });
 
+  // Disconnect
   socket.on('disconnect', (reason) => {
     console.log(`[Socket Disconnected] ${socket.id} (${reason})`);
 
-    if (currentRoom) {
-      const room = rooms.get(currentRoom);
+    const roomIdAtDisconnect = currentRoom;
+
+    if (roomIdAtDisconnect) {
+      const room = rooms.get(roomIdAtDisconnect);
+
       if (room) {
-        const roomIdToDelete = currentRoom;
         room.users.delete(socket.id);
 
-        socket.to(currentRoom).emit('user-left', {
+        socket.to(roomIdAtDisconnect).emit('user-left', {
           socketId: socket.id,
           username: currentUser?.username,
           userCount: room.users.size
@@ -473,9 +535,9 @@ io.on('connection', (socket) => {
 
         if (room.users.size === 0) {
           setTimeout(() => {
-            const r = rooms.get(roomIdToDelete);
+            const r = rooms.get(roomIdAtDisconnect);
             if (r && r.users.size === 0) {
-              rooms.delete(roomIdToDelete);
+              rooms.delete(roomIdAtDisconnect);
               console.log(`[Room Deleted] "${r.name}" (empty)`);
             }
           }, 5 * 60 * 1000);
@@ -488,6 +550,7 @@ io.on('connection', (socket) => {
 // ── Periodic Cleanup ────────────────────────────────────────────
 setInterval(() => {
   const now = Date.now();
+
   rooms.forEach((room, id) => {
     if (room.users.size === 0 && now - room.createdAt.getTime() > 24 * 60 * 60 * 1000) {
       rooms.delete(id);
@@ -498,20 +561,24 @@ setInterval(() => {
 
 // ── Start Server ────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
   console.log(`
 ╔══════════════════════════════════════════════════╗
-║ 🚀 NEXUS Platform running on port ${PORT} ║
-║ 📡 Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║
-║ 🌐 http://localhost:${PORT} ║
+║ 🚀 NEXUS Platform running on port ${PORT}
+║ 📡 Environment: ${process.env.NODE_ENV || 'development'}
+║ 🌐 http://localhost:${PORT}
 ╚══════════════════════════════════════════════════╝
-`);
+  `);
 });
 
 // ── Graceful Shutdown ───────────────────────────────────────────
 process.on('SIGTERM', () => {
   console.log('[Server] SIGTERM received. Shutting down gracefully...');
-  io.emit('server-shutdown', { message: 'Server is restarting. Please reconnect shortly.' });
+  io.emit('server-shutdown', {
+    message: 'Server is restarting. Please reconnect shortly.'
+  });
+
   server.close(() => {
     console.log('[Server] Closed.');
     process.exit(0);
