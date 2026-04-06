@@ -1,7 +1,7 @@
 {
   "name": "nexus-realtime-platform",
   "version": "1.0.0",
-  "description": "Production-ready real-time communication platform with WebRTC, Socket.io, and multiplayer mini-games",
+  "description": "Production-ready real-time communication platform with WebRTC, Socket.IO, and multiplayer mini-games",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
