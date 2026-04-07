@@ -1,737 +1,690 @@
-/**
- * ╔══════════════════════════════════════════════════════════════╗
- * ║ NEXUS — Real-Time Communication Platform                    ║
- * ║ WebRTC · Socket.IO · Rooms · File Sharing · Render Ready    ║
- * ╚══════════════════════════════════════════════════════════════╝
- *
- * Production-ready server with:
- * - Express static file serving from /public
- * - Socket.IO signaling server for WebRTC
- * - Room management with password-protected lobbies
- * - Real-time messaging, reactions, typing indicators
- * - File-sharing relay support
- * - Optimized for Render deployment
- */
+require("dotenv").config();
 
-require('dotenv').config();
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
+const { Server } = require("socket.io");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { v4: uuidv4 } = require("uuid");
+const slugify = require("slugify");
 
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
-const helmet = require('helmet');
-const compression = require('compression');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
-
-// ───────────────────────────────────────────────────────────────
-// App Initialization
-// ───────────────────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? true : '*',
-    methods: ['GET', 'POST']
-  },
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  maxHttpBufferSize: 1e7, // 10MB
-  transports: ['websocket', 'polling']
+    origin: process.env.CLIENT_URL ? [process.env.CLIENT_URL] : "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-// ───────────────────────────────────────────────────────────────
-// Constants
-// ───────────────────────────────────────────────────────────────
-const MAX_ROOMS = parseInt(process.env.MAX_ROOMS || '100', 10);
-const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM || '12', 10);
-const SALT_ROUNDS = 10;
-const MAX_MESSAGES_PER_ROOM = 200;
-const TOKEN_TTL_MS = 60 * 1000;
-const EMPTY_ROOM_DELETE_DELAY_MS = 5 * 60 * 1000;
-const STALE_ROOM_TTL_MS = 24 * 60 * 60 * 1000;
+app.use(cors({
+  origin: process.env.CLIENT_URL ? [process.env.CLIENT_URL] : "*"
+}));
+app.use(express.json());
 
-// ───────────────────────────────────────────────────────────────
-// Middleware
-// ───────────────────────────────────────────────────────────────
-app.use(compression());
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || "dev_secret_change_me";
 
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          "'unsafe-eval'",
-          'https://cdnjs.cloudflare.com',
-          'https://cdn.socket.io',
-          'https://unpkg.com',
-          'https://cdn.jsdelivr.net'
-        ],
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          'https://fonts.googleapis.com',
-          'https://cdnjs.cloudflare.com'
-        ],
-        fontSrc: [
-          "'self'",
-          'https://fonts.gstatic.com',
-          'https://cdnjs.cloudflare.com'
-        ],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", 'wss:', 'ws:', 'https:'],
-        mediaSrc: ["'self'", 'blob:', 'data:'],
-        workerSrc: ["'self'", 'blob:']
-      }
-    },
-    crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: false
-  })
-);
+/*
+============================================================
+IN-MEMORY DATA
+Replace with database later
+============================================================
+*/
 
-app.use(
-  express.static(path.join(__dirname, 'public'), {
-    maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
-    etag: true
-  })
-);
-
-// ───────────────────────────────────────────────────────────────
-// In-Memory Data Stores
-// ───────────────────────────────────────────────────────────────
 const rooms = new Map();
-
-// Room shape:
-// {
-//   id, name, slug, joinCode, passwordHash, createdBy, createdAt,
-//   users: Map<socketId, { id, username, isAudioOn, isVideoOn, joinedAt }>,
-//   messages: [],
-//   pendingTokens: Map<token, { createdAt }>
-// }
-
-// ───────────────────────────────────────────────────────────────
-// Helper Functions
-// ───────────────────────────────────────────────────────────────
-function generateSlug() {
-  const adjectives = [
-    'cosmic', 'neon', 'quantum', 'stellar', 'cyber',
-    'hyper', 'ultra', 'mega', 'turbo', 'astro'
-  ];
-  const nouns = [
-    'nexus', 'pulse', 'wave', 'core', 'flux',
-    'drift', 'spark', 'vortex', 'nova', 'beam'
-  ];
-
-  let slug = '';
-  let exists = true;
-
-  while (exists) {
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    const num = Math.floor(Math.random() * 9000) + 1000;
-    slug = `${adj}-${noun}-${num}`;
-
-    exists = false;
-    for (const room of rooms.values()) {
-      if (room.slug === slug) {
-        exists = true;
-        break;
-      }
-    }
-  }
-
-  return slug;
+/*
+room shape:
+{
+  id,
+  name,
+  slug,
+  joinCode,
+  passwordHash,
+  creatorUserId,
+  createdAt,
+  messages: [],
+  users: Map<socketId, {
+    socketId,
+    userId,
+    username,
+    isAdmin,
+    isAudioOn,
+    isVideoOn,
+    joinedAt
+  }>
 }
+*/
 
-function generateJoinCode() {
-  let code = '';
-  let exists = true;
+const userSessions = new Map();
+/*
+socketId -> {
+  roomId,
+  userId,
+  username
+}
+*/
 
-  while (exists) {
-    code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    exists = false;
+/*
+============================================================
+UTILS
+============================================================
+*/
 
-    for (const room of rooms.values()) {
-      if (room.joinCode === code) {
-        exists = true;
-        break;
-      }
-    }
+function makeJoinCode(length = 6) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
   }
-
   return code;
 }
 
-function sanitize(str, maxLen = 500) {
-  if (typeof str !== 'string') return '';
-  return str
-    .replace(/[<>&"']/g, (c) => ({
-      '<': '<',
-      '>': '>',
-      '&': '&',
-      '"': '"',
-      "'": '&#39;'
-    }[c]))
-    .trim()
-    .substring(0, maxLen);
+function uniqueSlug(baseName) {
+  const base = slugify(baseName, { lower: true, strict: true }) || "room";
+  let slug = base;
+  let count = 1;
+
+  while ([...rooms.values()].some(r => r.slug === slug)) {
+    slug = `${base}-${count++}`;
+  }
+  return slug;
 }
 
-function getRoomPublicInfo(room) {
-  const users = [];
+function uniqueJoinCode() {
+  let code = makeJoinCode();
+  while ([...rooms.values()].some(r => r.joinCode === code)) {
+    code = makeJoinCode();
+  }
+  return code;
+}
 
-  room.users.forEach((user, socketId) => {
-    users.push({
-      ...user,
-      socketId
-    });
-  });
-
+function publicRoom(room) {
   return {
     id: room.id,
     name: room.name,
     slug: room.slug,
     joinCode: room.joinCode,
     userCount: room.users.size,
-    users,
-    createdAt: room.createdAt
+    creatorUserId: room.creatorUserId,
+    createdAt: room.createdAt,
+    users: [...room.users.values()].map(u => ({
+      socketId: u.socketId,
+      userId: u.userId,
+      username: u.username,
+      isAdmin: u.isAdmin,
+      isAudioOn: u.isAudioOn,
+      isVideoOn: u.isVideoOn,
+      joinedAt: u.joinedAt
+    }))
   };
 }
 
-function cleanupExpiredTokens(room) {
-  const now = Date.now();
-  room.pendingTokens.forEach((value, key) => {
-    if (now - value.createdAt > TOKEN_TTL_MS) {
-      room.pendingTokens.delete(key);
-    }
-  });
+function signRoomToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
-function addRoomMessage(room, message) {
-  room.messages.push(message);
-  if (room.messages.length > MAX_MESSAGES_PER_ROOM) {
-    room.messages = room.messages.slice(-MAX_MESSAGES_PER_ROOM);
-  }
+function verifyRoomToken(token) {
+  return jwt.verify(token, JWT_SECRET);
 }
 
-function findRoomBySlugOrCode({ slug, code }) {
-  for (const room of rooms.values()) {
-    if (slug && room.slug === slug) return room;
-    if (code && room.joinCode === String(code).toUpperCase()) return room;
-  }
-  return null;
-}
-
-function ensureRoomExists(roomId) {
+function findRoomById(roomId) {
   return rooms.get(roomId) || null;
 }
 
-// ───────────────────────────────────────────────────────────────
-// REST API Endpoints
-// ───────────────────────────────────────────────────────────────
+function findRoomBySlug(slug) {
+  return [...rooms.values()].find(r => r.slug === slug) || null;
+}
 
-// Health check
-app.get('/api/health', (req, res) => {
+function findRoomByCode(code) {
+  return [...rooms.values()].find(r => r.joinCode === code.toUpperCase()) || null;
+}
+
+function getSocketUserRoom(socket) {
+  const session = userSessions.get(socket.id);
+  if (!session) return null;
+  const room = findRoomById(session.roomId);
+  if (!room) return null;
+  const user = room.users.get(socket.id);
+  if (!user) return null;
+  return { room, user, session };
+}
+
+function addSystemMessage(room, text) {
+  const message = {
+    id: uuidv4(),
+    type: "system",
+    username: "System",
+    text,
+    timestamp: Date.now()
+  };
+  room.messages.push(message);
+  if (room.messages.length > 200) room.messages.shift();
+  io.to(room.id).emit("chat-message", message);
+}
+
+function addUserMessage(room, username, text) {
+  const message = {
+    id: uuidv4(),
+    type: "user",
+    username,
+    text,
+    timestamp: Date.now()
+  };
+  room.messages.push(message);
+  if (room.messages.length > 200) room.messages.shift();
+  return message;
+}
+
+function emitRoomUsers(room) {
+  io.to(room.id).emit("room-users-updated", {
+    users: publicRoom(room).users,
+    userCount: room.users.size
+  });
+}
+
+function sanitizeMessage(text) {
+  return String(text || "").trim().slice(0, 4000);
+}
+
+function sanitizeUsername(name) {
+  return String(name || "").trim().slice(0, 32);
+}
+
+/*
+============================================================
+API ROUTES
+============================================================
+*/
+
+// Health
+app.get("/api/health", (req, res) => {
   res.json({
-    status: 'ok',
-    uptime: process.uptime(),
+    ok: true,
     rooms: rooms.size,
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    uptime: process.uptime()
   });
 });
 
 // Create room
-app.post('/api/rooms', async (req, res) => {
+app.post("/api/rooms", async (req, res) => {
   try {
-    if (rooms.size >= MAX_ROOMS) {
-      return res.status(429).json({
-        error: 'Maximum room limit reached. Try again later.'
-      });
+    const { name, password, username } = req.body || {};
+
+    const cleanName = String(name || "").trim().slice(0, 80);
+    const cleanPassword = String(password || "").trim();
+    const cleanUsername = sanitizeUsername(username);
+
+    if (!cleanName) {
+      return res.status(400).json({ error: "Room name is required." });
     }
 
-    const name = sanitize(req.body.name, 80);
-    const password = String(req.body.password || '');
-    const username = sanitize(req.body.username, 40);
-
-    if (!name || !password || !username) {
-      return res.status(400).json({
-        error: 'Room name, password, and username are required.'
-      });
+    if (cleanPassword.length < 4) {
+      return res.status(400).json({ error: "Password must be at least 4 characters." });
     }
 
-    if (password.length < 4) {
-      return res.status(400).json({
-        error: 'Password must be at least 4 characters.'
-      });
+    if (!cleanUsername) {
+      return res.status(400).json({ error: "Username is required." });
     }
 
-    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const roomId = uuidv4();
-    const slug = generateSlug();
-    const joinCode = generateJoinCode();
+    const creatorUserId = uuidv4();
+    const passwordHash = await bcrypt.hash(cleanPassword, 10);
+    const slug = uniqueSlug(cleanName);
+    const joinCode = uniqueJoinCode();
 
     const room = {
       id: roomId,
-      name,
+      name: cleanName,
       slug,
       joinCode,
       passwordHash,
-      createdBy: username,
-      createdAt: new Date(),
-      users: new Map(),
+      creatorUserId,
+      createdAt: Date.now(),
       messages: [],
-      pendingTokens: new Map()
+      users: new Map()
     };
 
     rooms.set(roomId, room);
 
-    console.log(`[Room Created] "${room.name}" (${room.slug}) by ${room.createdBy}`);
+    const token = signRoomToken({
+      roomId,
+      userId: creatorUserId,
+      username: cleanUsername,
+      isAdmin: true
+    });
 
     return res.status(201).json({
       roomId,
+      name: cleanName,
       slug,
       joinCode,
-      name: room.name
+      creatorUserId,
+      token
     });
   } catch (err) {
-    console.error('[Create Room Error]', err);
-    return res.status(500).json({ error: 'Internal server error.' });
+    console.error("CREATE ROOM ERROR:", err);
+    return res.status(500).json({ error: "Failed to create room." });
   }
 });
 
 // Lookup room by slug or code
-app.get('/api/rooms/lookup', (req, res) => {
-  const { slug, code } = req.query;
-
-  if (!slug && !code) {
-    return res.status(400).json({
-      error: 'Provide either slug or code.'
-    });
-  }
-
-  const room = findRoomBySlugOrCode({ slug, code });
-
-  if (!room) {
-    return res.status(404).json({ error: 'Room not found.' });
-  }
-
-  return res.json({
-    roomId: room.id,
-    name: room.name,
-    slug: room.slug,
-    userCount: room.users.size,
-    maxUsers: MAX_USERS_PER_ROOM
-  });
-});
-
-// Validate room password and issue temporary join token
-app.post('/api/rooms/:roomId/validate', async (req, res) => {
+app.get("/api/rooms/lookup", (req, res) => {
   try {
-    const { roomId } = req.params;
-    const { password } = req.body;
+    const { slug, code } = req.query;
 
-    const room = ensureRoomExists(roomId);
+    let room = null;
+    if (slug) room = findRoomBySlug(String(slug).trim());
+    if (code) room = findRoomByCode(String(code).trim());
 
     if (!room) {
-      return res.status(404).json({ error: 'Room not found.' });
+      return res.status(404).json({ error: "Room not found." });
     }
-
-    if (room.users.size >= MAX_USERS_PER_ROOM) {
-      return res.status(403).json({ error: 'Room is full.' });
-    }
-
-    const isValid = await bcrypt.compare(String(password || ''), room.passwordHash);
-
-    if (!isValid) {
-      return res.status(401).json({ error: 'Incorrect password.' });
-    }
-
-    cleanupExpiredTokens(room);
-
-    const token = uuidv4();
-    room.pendingTokens.set(token, { createdAt: Date.now() });
 
     return res.json({
-      valid: true,
+      roomId: room.id,
+      name: room.name,
+      slug: room.slug,
+      joinCode: room.joinCode,
+      userCount: room.users.size
+    });
+  } catch (err) {
+    console.error("LOOKUP ERROR:", err);
+    return res.status(500).json({ error: "Room lookup failed." });
+  }
+});
+
+// Validate room password and issue room token
+app.post("/api/rooms/:roomId/validate", async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { password, username } = req.body || {};
+
+    const room = findRoomById(roomId);
+    if (!room) {
+      return res.status(404).json({ error: "Room not found." });
+    }
+
+    const ok = await bcrypt.compare(String(password || ""), room.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid room password." });
+    }
+
+    const cleanUsername = sanitizeUsername(username || "Guest");
+    const userId = uuidv4();
+    const isAdmin = false;
+
+    const token = signRoomToken({
+      roomId: room.id,
+      userId,
+      username: cleanUsername,
+      isAdmin
+    });
+
+    return res.json({
+      ok: true,
       token
     });
   } catch (err) {
-    console.error('[Validate Error]', err);
-    return res.status(500).json({ error: 'Internal server error.' });
+    console.error("VALIDATE ERROR:", err);
+    return res.status(500).json({ error: "Password validation failed." });
   }
 });
 
-// Optional room info endpoint
-app.get('/api/rooms/:roomId', (req, res) => {
-  const room = ensureRoomExists(req.params.roomId);
+/*
+============================================================
+SOCKET.IO
+============================================================
+*/
 
-  if (!room) {
-    return res.status(404).json({ error: 'Room not found.' });
-  }
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id);
 
-  return res.json(getRoomPublicInfo(room));
-});
-
-// SPA room route
-app.get('/room/:slug', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// API 404 fallback
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'Endpoint not found.' });
-});
-
-// Frontend catch-all
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ───────────────────────────────────────────────────────────────
-// Socket.IO Logic
-// ───────────────────────────────────────────────────────────────
-io.on('connection', (socket) => {
-  console.log(`[Socket Connected] ${socket.id}`);
-
-  let currentRoomId = null;
-  let currentUser = null;
-
-  function getCurrentRoom() {
-    if (!currentRoomId) return null;
-    return rooms.get(currentRoomId) || null;
-  }
-
-  function leaveCurrentRoom(reason = 'left') {
-    const room = getCurrentRoom();
-    if (!room || !currentUser) return;
-
-    room.users.delete(socket.id);
-    socket.leave(currentRoomId);
-
-    socket.to(currentRoomId).emit('user-left', {
-      socketId: socket.id,
-      username: currentUser.username,
-      userCount: room.users.size,
-      reason
-    });
-
-    console.log(
-      `[User Left] ${currentUser.username} ← "${room.name}" (${room.users.size} users)`
-    );
-
-    const roomIdSnapshot = currentRoomId;
-
-    currentRoomId = null;
-    currentUser = null;
-
-    if (room.users.size === 0) {
-      setTimeout(() => {
-        const stillRoom = rooms.get(roomIdSnapshot);
-        if (stillRoom && stillRoom.users.size === 0) {
-          rooms.delete(roomIdSnapshot);
-          console.log(`[Room Deleted] "${stillRoom.name}" (empty)`);
-        }
-      }, EMPTY_ROOM_DELETE_DELAY_MS);
-    }
-  }
-
-  // Join room
-  socket.on('join-room', ({ roomId, token, username }) => {
+  // join-room
+  socket.on("join-room", async (payload = {}) => {
     try {
-      const room = rooms.get(roomId);
+      const { roomId, token, username } = payload;
 
+      if (!roomId || !token) {
+        socket.emit("error-message", { message: "Missing roomId or token." });
+        return;
+      }
+
+      let decoded;
+      try {
+        decoded = verifyRoomToken(token);
+      } catch {
+        socket.emit("error-message", { message: "Invalid or expired token." });
+        return;
+      }
+
+      if (decoded.roomId !== roomId) {
+        socket.emit("error-message", { message: "Token does not match room." });
+        return;
+      }
+
+      const room = findRoomById(roomId);
       if (!room) {
-        return socket.emit('error-message', { message: 'Room not found.' });
+        socket.emit("error-message", { message: "Room not found." });
+        return;
       }
 
-      cleanupExpiredTokens(room);
-
-      if (!room.pendingTokens.has(token)) {
-        return socket.emit('error-message', {
-          message: 'Invalid or expired token. Please re-enter the password.'
-        });
+      // Prevent duplicate username in same room
+      const requestedName = sanitizeUsername(username || decoded.username || "Guest");
+      const duplicate = [...room.users.values()].find(
+        u => u.username.toLowerCase() === requestedName.toLowerCase()
+      );
+      if (duplicate) {
+        socket.emit("error-message", { message: "Username already taken in this room." });
+        return;
       }
 
-      if (room.users.size >= MAX_USERS_PER_ROOM) {
-        room.pendingTokens.delete(token);
-        return socket.emit('error-message', {
-          message: 'Room is full.'
-        });
-      }
+      await socket.join(room.id);
 
-      room.pendingTokens.delete(token);
-
-      const sanitizedName =
-        sanitize(username, 40) || `User-${socket.id.substring(0, 4)}`;
-
-      currentRoomId = roomId;
-      currentUser = {
-        id: socket.id,
-        username: sanitizedName,
-        isAudioOn: true,
-        isVideoOn: true,
-        joinedAt: new Date().toISOString()
+      const user = {
+        socketId: socket.id,
+        userId: decoded.userId,
+        username: requestedName,
+        isAdmin: decoded.userId === room.creatorUserId || !!decoded.isAdmin,
+        isAudioOn: false,
+        isVideoOn: false,
+        joinedAt: Date.now()
       };
 
-      room.users.set(socket.id, currentUser);
-      socket.join(roomId);
-
-      console.log(
-        `[User Joined] ${sanitizedName} → "${room.name}" (${room.users.size} users)`
-      );
-
-      socket.emit('room-joined', {
-        room: getRoomPublicInfo(room),
-        messages: room.messages.slice(-100),
-        userId: socket.id
+      room.users.set(socket.id, user);
+      userSessions.set(socket.id, {
+        roomId: room.id,
+        userId: user.userId,
+        username: user.username
       });
 
-      socket.to(roomId).emit('user-joined', {
-        user: { ...currentUser, socketId: socket.id },
+      socket.emit("room-joined", {
+        room: publicRoom(room),
+        messages: room.messages
+      });
+
+      socket.to(room.id).emit("user-joined", {
+        user,
         userCount: room.users.size
       });
+
+      emitRoomUsers(room);
+      addSystemMessage(room, `${user.username} joined the room.`);
     } catch (err) {
-      console.error('[Join Room Error]', err);
-      socket.emit('error-message', { message: 'Failed to join room.' });
+      console.error("JOIN ROOM ERROR:", err);
+      socket.emit("error-message", { message: "Failed to join room." });
     }
   });
 
-  // WebRTC signaling relay
-  socket.on('webrtc-signal', (payload = {}) => {
+  // chat-message
+  socket.on("chat-message", ({ text } = {}) => {
     try {
-      const room = getCurrentRoom();
-      if (!room || !currentUser) return;
+      const data = getSocketUserRoom(socket);
+      if (!data) return;
 
-      const { to, type, offer, answer, candidate, username } = payload;
+      const { room, user } = data;
+      const cleanText = sanitizeMessage(text);
 
-      if (!to || !type) return;
+      if (!cleanText) return;
 
-      io.to(to).emit('webrtc-signal', {
-        from: socket.id,
-        type,
-        offer,
-        answer,
-        candidate,
-        username: username || currentUser.username
-      });
+      const message = addUserMessage(room, user.username, cleanText);
+      io.to(room.id).emit("chat-message", message);
     } catch (err) {
-      console.error('[WebRTC Signal Error]', err);
+      console.error("CHAT MESSAGE ERROR:", err);
     }
   });
 
-  // Audio toggle
-  socket.on('toggle-audio', ({ isAudioOn }) => {
-    try {
-      const room = getCurrentRoom();
-      if (!room || !currentUser) return;
-
-      currentUser.isAudioOn = !!isAudioOn;
-      room.users.set(socket.id, currentUser);
-
-      socket.to(currentRoomId).emit('user-toggle-audio', {
-        socketId: socket.id,
-        isAudioOn: currentUser.isAudioOn
-      });
-    } catch (err) {
-      console.error('[Toggle Audio Error]', err);
-    }
+  // typing indicators
+  socket.on("typing-start", () => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+    socket.to(data.room.id).emit("typing-start", { username: data.user.username });
   });
 
-  // Video toggle
-  socket.on('toggle-video', ({ isVideoOn }) => {
-    try {
-      const room = getCurrentRoom();
-      if (!room || !currentUser) return;
-
-      currentUser.isVideoOn = !!isVideoOn;
-      room.users.set(socket.id, currentUser);
-
-      socket.to(currentRoomId).emit('user-toggle-video', {
-        socketId: socket.id,
-        isVideoOn: currentUser.isVideoOn
-      });
-    } catch (err) {
-      console.error('[Toggle Video Error]', err);
-    }
+  socket.on("typing-stop", () => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+    socket.to(data.room.id).emit("typing-stop", { username: data.user.username });
   });
 
-  // Chat message
-  socket.on('chat-message', ({ text }) => {
-    try {
-      const room = getCurrentRoom();
-      if (!room || !currentUser) return;
+  // reactions
+  socket.on("send-reaction", ({ emoji } = {}) => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
 
-      const cleanText = sanitize(text, 4000);
-      if (!cleanText.trim()) return;
+    const safeEmoji = String(emoji || "").slice(0, 8);
+    if (!safeEmoji) return;
 
-      const message = {
-        id: uuidv4(),
-        username: currentUser.username,
-        text: cleanText,
-        timestamp: new Date().toISOString()
-      };
-
-      addRoomMessage(room, message);
-      io.to(currentRoomId).emit('chat-message', message);
-    } catch (err) {
-      console.error('[Chat Message Error]', err);
-    }
+    io.to(data.room.id).emit("reaction", {
+      username: data.user.username,
+      emoji: safeEmoji
+    });
   });
 
-  // File message
-  socket.on('file-message', ({ text, file }) => {
-    try {
-      const room = getCurrentRoom();
-      if (!room || !currentUser) return;
+  // media state sync
+  socket.on("toggle-audio", ({ isAudioOn } = {}) => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
 
-      if (!file || typeof file !== 'object') {
-        return socket.emit('error-message', {
-          message: 'Invalid file payload.'
-        });
+    data.user.isAudioOn = !!isAudioOn;
+
+    io.to(data.room.id).emit("user-toggle-audio", {
+      socketId: socket.id,
+      userId: data.user.userId,
+      username: data.user.username,
+      isAudioOn: data.user.isAudioOn
+    });
+
+    emitRoomUsers(data.room);
+  });
+
+  socket.on("toggle-video", ({ isVideoOn } = {}) => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+
+    data.user.isVideoOn = !!isVideoOn;
+
+    io.to(data.room.id).emit("user-toggle-video", {
+      socketId: socket.id,
+      userId: data.user.userId,
+      username: data.user.username,
+      isVideoOn: data.user.isVideoOn
+    });
+
+    emitRoomUsers(data.room);
+  });
+
+  /*
+  ============================================================
+  WEBRTC SIGNALING
+  ============================================================
+  Frontend flow:
+  - when a new user joins, existing users create RTCPeerConnection
+  - existing user sends offer to target socket
+  - target sends answer back
+  - both exchange ICE candidates
+  */
+
+  socket.on("webrtc-offer", ({ targetSocketId, offer } = {}) => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+
+    const targetUser = data.room.users.get(targetSocketId);
+    if (!targetUser) return;
+
+    io.to(targetSocketId).emit("webrtc-offer", {
+      fromSocketId: socket.id,
+      fromUserId: data.user.userId,
+      fromUsername: data.user.username,
+      offer
+    });
+  });
+
+  socket.on("webrtc-answer", ({ targetSocketId, answer } = {}) => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+
+    const targetUser = data.room.users.get(targetSocketId);
+    if (!targetUser) return;
+
+    io.to(targetSocketId).emit("webrtc-answer", {
+      fromSocketId: socket.id,
+      fromUserId: data.user.userId,
+      fromUsername: data.user.username,
+      answer
+    });
+  });
+
+  socket.on("webrtc-ice-candidate", ({ targetSocketId, candidate } = {}) => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+
+    const targetUser = data.room.users.get(targetSocketId);
+    if (!targetUser) return;
+
+    io.to(targetSocketId).emit("webrtc-ice-candidate", {
+      fromSocketId: socket.id,
+      fromUserId: data.user.userId,
+      fromUsername: data.user.username,
+      candidate
+    });
+  });
+
+  /*
+  ============================================================
+  ADMIN
+  ============================================================
+  creator of room is admin
+  later you can add promoted admins
+  */
+
+  socket.on("admin-kick-user", ({ targetSocketId, reason } = {}) => {
+    try {
+      const data = getSocketUserRoom(socket);
+      if (!data) return;
+
+      const { room, user } = data;
+
+      if (!user.isAdmin) {
+        socket.emit("error-message", { message: "Admin access required." });
+        return;
       }
 
-      const message = {
-        id: uuidv4(),
-        username: currentUser.username,
-        text: sanitize(text || '', 2000),
-        file: {
-          name: sanitize(file.name || 'file', 120),
-          type: sanitize(file.type || 'application/octet-stream', 120),
-          size: Number(file.size || 0),
-          data: typeof file.data === 'string' ? file.data : ''
-        },
-        timestamp: new Date().toISOString()
-      };
+      if (!targetSocketId || targetSocketId === socket.id) {
+        socket.emit("error-message", { message: "Invalid target user." });
+        return;
+      }
 
-      addRoomMessage(room, message);
-      io.to(currentRoomId).emit('file-message', message);
-    } catch (err) {
-      console.error('[File Message Error]', err);
-      socket.emit('error-message', {
-        message: 'Failed to send file.'
+      const targetUser = room.users.get(targetSocketId);
+      if (!targetUser) {
+        socket.emit("error-message", { message: "Target user not found." });
+        return;
+      }
+
+      io.to(targetSocketId).emit("admin-kicked", {
+        message: reason
+          ? `You were removed by the admin: ${reason}`
+          : "You were removed by the room admin."
       });
+
+      io.sockets.sockets.get(targetSocketId)?.leave(room.id);
+      io.sockets.sockets.get(targetSocketId)?.disconnect(true);
+
+      // cleanup happens in disconnect
+    } catch (err) {
+      console.error("ADMIN KICK ERROR:", err);
+      socket.emit("error-message", { message: "Failed to remove user." });
     }
   });
 
-  // Typing indicators
-  socket.on('typing-start', () => {
+  // optional admin state request
+  socket.on("admin-get-room-state", () => {
+    const data = getSocketUserRoom(socket);
+    if (!data) return;
+
+    if (!data.user.isAdmin) {
+      socket.emit("error-message", { message: "Admin access required." });
+      return;
+    }
+
+    socket.emit("admin-room-state", {
+      room: publicRoom(data.room),
+      messages: data.room.messages
+    });
+  });
+
+  // ping/pong quality helper
+  socket.on("ping-check", () => {
+    socket.emit("pong-check");
+  });
+
+  // disconnect
+  socket.on("disconnect", () => {
     try {
-      if (!currentRoomId || !currentUser) return;
+      const session = userSessions.get(socket.id);
+      if (!session) {
+        console.log("Socket disconnected:", socket.id);
+        return;
+      }
 
-      socket.to(currentRoomId).emit('typing-start', {
-        username: currentUser.username
-      });
+      const room = findRoomById(session.roomId);
+      if (!room) {
+        userSessions.delete(socket.id);
+        return;
+      }
+
+      const user = room.users.get(socket.id);
+      room.users.delete(socket.id);
+      userSessions.delete(socket.id);
+
+      if (user) {
+        socket.to(room.id).emit("user-left", {
+          socketId: socket.id,
+          username: user.username,
+          userCount: room.users.size
+        });
+
+        addSystemMessage(room, `${user.username} left the room.`);
+      }
+
+      emitRoomUsers(room);
+
+      // auto-delete empty rooms
+      if (room.users.size === 0) {
+        rooms.delete(room.id);
+        console.log(`Deleted empty room: ${room.name} (${room.id})`);
+      }
+
+      console.log("Socket disconnected:", socket.id);
     } catch (err) {
-      console.error('[Typing Start Error]', err);
+      console.error("DISCONNECT ERROR:", err);
     }
-  });
-
-  socket.on('typing-stop', () => {
-    try {
-      if (!currentRoomId || !currentUser) return;
-
-      socket.to(currentRoomId).emit('typing-stop', {
-        username: currentUser.username
-      });
-    } catch (err) {
-      console.error('[Typing Stop Error]', err);
-    }
-  });
-
-  // Reactions
-  socket.on('send-reaction', ({ emoji }) => {
-    try {
-      if (!currentRoomId || !currentUser) return;
-
-      const cleanEmoji = sanitize(String(emoji || ''), 20);
-      if (!cleanEmoji) return;
-
-      io.to(currentRoomId).emit('reaction', {
-        emoji: cleanEmoji,
-        username: currentUser.username,
-        socketId: socket.id
-      });
-    } catch (err) {
-      console.error('[Reaction Error]', err);
-    }
-  });
-
-  // Optional manual leave event, if you ever want it
-  socket.on('leave-room', () => {
-    leaveCurrentRoom('left');
-  });
-
-  // Disconnect
-  socket.on('disconnect', (reason) => {
-    console.log(`[Socket Disconnected] ${socket.id} (${reason})`);
-    leaveCurrentRoom(reason);
   });
 });
 
-// ───────────────────────────────────────────────────────────────
-// Periodic Cleanup
-// ───────────────────────────────────────────────────────────────
-setInterval(() => {
-  const now = Date.now();
+/*
+============================================================
+GOOGLE AUTH PREP PLACEHOLDER
+============================================================
+This is just a placeholder route.
+Real Google sign-in should use Passport or Firebase Auth.
+*/
 
-  rooms.forEach((room, roomId) => {
-    cleanupExpiredTokens(room);
-
-    if (room.users.size === 0 && now - room.createdAt.getTime() > STALE_ROOM_TTL_MS) {
-      rooms.delete(roomId);
-      console.log(`[Cleanup] Removed stale room "${room.name}"`);
-    }
+app.get("/api/auth/google/status", (req, res) => {
+  res.json({
+    ready: false,
+    message: "Google auth not implemented yet. Backend prepared for future integration."
   });
-}, 30 * 60 * 1000);
+});
 
-// ───────────────────────────────────────────────────────────────
-// Start Server
-// ───────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
+/*
+============================================================
+START
+============================================================
+*/
 
 server.listen(PORT, () => {
-  console.log(`
-╔══════════════════════════════════════════════════╗
-║ 🚀 NEXUS Platform running on port ${PORT}
-║ 📡 Environment: ${process.env.NODE_ENV || 'development'}
-║ 🌐 http://localhost:${PORT}
-╚══════════════════════════════════════════════════╝
-`);
-});
-
-// ───────────────────────────────────────────────────────────────
-// Graceful Shutdown
-// ───────────────────────────────────────────────────────────────
-process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received. Shutting down gracefully...');
-
-  io.emit('server-shutdown', {
-    message: 'Server is restarting. Please reconnect shortly.'
-  });
-
-  server.close(() => {
-    console.log('[Server] Closed.');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('[Server] SIGINT received. Shutting down gracefully...');
-
-  io.emit('server-shutdown', {
-    message: 'Server is shutting down. Please reconnect shortly.'
-  });
-
-  server.close(() => {
-    console.log('[Server] Closed.');
-    process.exit(0);
-  });
+  console.log(`Server running on http://localhost:${PORT}`);
 });
