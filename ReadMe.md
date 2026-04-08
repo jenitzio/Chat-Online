@@ -2,6 +2,9 @@
 
 A high-performance, real-time online chat application built with a focus on modern aesthetics, security, and ultra-low latency. Nexus Ultimate combines a premium glassmorphic interface with integrated artificial intelligence to deliver a seamless communication experience.
 
+<img width="917" height="652" alt="Screenshot 2026-04-08 17 54 01" src="https://github.com/user-attachments/assets/7695ae90-4712-4dbf-93af-3f62767bcc91" />
+
+
 Live Demo: https://nexus-ultimate.wasmer.app
 
 
