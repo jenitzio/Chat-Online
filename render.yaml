@@ -1,3 +1,5 @@
+# render.yaml
+
 services:
   - type: web
     name: nexus-platform
@@ -8,5 +10,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
+      - key: CLIENT_URL
+        sync: false
+      - key: MAX_ROOMS
+        value: 100
+      - key: MAX_USERS_PER_ROOM
+        value: 12
