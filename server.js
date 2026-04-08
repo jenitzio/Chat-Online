@@ -1,52 +1,46 @@
 /**
  * ╔══════════════════════════════════════════════════════════════╗
  * ║ NEXUS — Real-Time Communication Platform                    ║
- * ║ WebRTC · Socket.IO · Rooms · File Sharing · Render Ready    ║
+ * ║ WebRTC · Socket.IO · Rooms · File Sharing · Render Ready   ║
  * ╚══════════════════════════════════════════════════════════════╝
- *
- * Production-ready server with:
- * - Express static file serving from /public
- * - Socket.IO signaling server for WebRTC
- * - Room management with password-protected lobbies
- * - Real-time messaging, reactions, typing indicators
- * - File-sharing relay support
- * - Optimized for Render deployment
  */
 
-require('dotenv').config();
+require("dotenv").config();
 
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
-const helmet = require('helmet');
-const compression = require('compression');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const { v4: uuidv4 } = require('uuid');
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const path = require("path");
+const helmet = require("helmet");
+const compression = require("compression");
+const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const { v4: uuidv4 } = require("uuid");
 
 // ───────────────────────────────────────────────────────────────
 // App Initialization
 // ───────────────────────────────────────────────────────────────
 const app = express();
+app.set("trust proxy", 1);
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? true : '*',
-    methods: ['GET', 'POST']
+    origin: process.env.NODE_ENV === "production" ? true : "*",
+    methods: ["GET", "POST"]
   },
   pingTimeout: 60000,
   pingInterval: 25000,
   maxHttpBufferSize: 1e7, // 10MB
-  transports: ['websocket', 'polling']
+  transports: ["websocket", "polling"]
 });
 
 // ───────────────────────────────────────────────────────────────
 // Constants
 // ───────────────────────────────────────────────────────────────
-const MAX_ROOMS = parseInt(process.env.MAX_ROOMS || '100', 10);
-const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM || '12', 10);
+const MAX_ROOMS = parseInt(process.env.MAX_ROOMS || "100", 10);
+const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM || "12", 10);
 const SALT_ROUNDS = 10;
 const MAX_MESSAGES_PER_ROOM = 200;
 const TOKEN_TTL_MS = 60 * 1000;
@@ -57,8 +51,13 @@ const STALE_ROOM_TTL_MS = 24 * 60 * 60 * 1000;
 // Middleware
 // ───────────────────────────────────────────────────────────────
 app.use(compression());
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+
+app.use(cors({
+  origin: process.env.NODE_ENV === "production" ? true : "*",
+  methods: ["GET", "POST"]
+}));
+
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use(
@@ -70,26 +69,26 @@ app.use(
           "'self'",
           "'unsafe-inline'",
           "'unsafe-eval'",
-          'https://cdnjs.cloudflare.com',
-          'https://cdn.socket.io',
-          'https://unpkg.com',
-          'https://cdn.jsdelivr.net'
+          "https://cdnjs.cloudflare.com",
+          "https://cdn.socket.io",
+          "https://unpkg.com",
+          "https://cdn.jsdelivr.net"
         ],
         styleSrc: [
           "'self'",
           "'unsafe-inline'",
-          'https://fonts.googleapis.com',
-          'https://cdnjs.cloudflare.com'
+          "https://fonts.googleapis.com",
+          "https://cdnjs.cloudflare.com"
         ],
         fontSrc: [
           "'self'",
-          'https://fonts.gstatic.com',
-          'https://cdnjs.cloudflare.com'
+          "https://fonts.gstatic.com",
+          "https://cdnjs.cloudflare.com"
         ],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'", 'wss:', 'ws:', 'https:'],
-        mediaSrc: ["'self'", 'blob:', 'data:'],
-        workerSrc: ["'self'", 'blob:']
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https:"],
+        mediaSrc: ["'self'", "blob:", "data:"],
+        workerSrc: ["'self'", "blob:"]
       }
     },
     crossOriginEmbedderPolicy: false,
@@ -98,8 +97,8 @@ app.use(
 );
 
 app.use(
-  express.static(path.join(__dirname, 'public'), {
-    maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
+  express.static(path.join(__dirname, "public"), {
+    maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
     etag: true
   })
 );
@@ -109,28 +108,20 @@ app.use(
 // ───────────────────────────────────────────────────────────────
 const rooms = new Map();
 
-// Room shape:
-// {
-//   id, name, slug, joinCode, passwordHash, createdBy, createdAt,
-//   users: Map<socketId, { id, username, isAudioOn, isVideoOn, joinedAt }>,
-//   messages: [],
-//   pendingTokens: Map<token, { createdAt }>
-// }
-
 // ───────────────────────────────────────────────────────────────
 // Helper Functions
 // ───────────────────────────────────────────────────────────────
 function generateSlug() {
   const adjectives = [
-    'cosmic', 'neon', 'quantum', 'stellar', 'cyber',
-    'hyper', 'ultra', 'mega', 'turbo', 'astro'
+    "cosmic", "neon", "quantum", "stellar", "cyber",
+    "hyper", "ultra", "mega", "turbo", "astro"
   ];
   const nouns = [
-    'nexus', 'pulse', 'wave', 'core', 'flux',
-    'drift', 'spark', 'vortex', 'nova', 'beam'
+    "nexus", "pulse", "wave", "core", "flux",
+    "drift", "spark", "vortex", "nova", "beam"
   ];
 
-  let slug = '';
+  let slug = "";
   let exists = true;
 
   while (exists) {
@@ -152,7 +143,7 @@ function generateSlug() {
 }
 
 function generateJoinCode() {
-  let code = '';
+  let code = "";
   let exists = true;
 
   while (exists) {
@@ -171,14 +162,14 @@ function generateJoinCode() {
 }
 
 function sanitize(str, maxLen = 500) {
-  if (typeof str !== 'string') return '';
+  if (typeof str !== "string") return "";
   return str
     .replace(/[<>&"']/g, (c) => ({
-      '<': '<',
-      '>': '>',
-      '&': '&',
-      '"': '"',
-      "'": '&#39;'
+      "<": "<",
+      ">": ">",
+      "&": "&",
+      '"': """,
+      "'": "&#39;"
     }[c]))
     .trim()
     .substring(0, maxLen);
@@ -238,38 +229,38 @@ function ensureRoomExists(roomId) {
 // ───────────────────────────────────────────────────────────────
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get("/api/health", (req, res) => {
   res.json({
-    status: 'ok',
+    status: "ok",
     uptime: process.uptime(),
     rooms: rooms.size,
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development"
   });
 });
 
 // Create room
-app.post('/api/rooms', async (req, res) => {
+app.post("/api/rooms", async (req, res) => {
   try {
     if (rooms.size >= MAX_ROOMS) {
       return res.status(429).json({
-        error: 'Maximum room limit reached. Try again later.'
+        error: "Maximum room limit reached. Try again later."
       });
     }
 
     const name = sanitize(req.body.name, 80);
-    const password = String(req.body.password || '');
+    const password = String(req.body.password || "");
     const username = sanitize(req.body.username, 40);
 
     if (!name || !password || !username) {
       return res.status(400).json({
-        error: 'Room name, password, and username are required.'
+        error: "Room name, password, and username are required."
       });
     }
 
     if (password.length < 4) {
       return res.status(400).json({
-        error: 'Password must be at least 4 characters.'
+        error: "Password must be at least 4 characters."
       });
     }
 
@@ -302,25 +293,25 @@ app.post('/api/rooms', async (req, res) => {
       name: room.name
     });
   } catch (err) {
-    console.error('[Create Room Error]', err);
-    return res.status(500).json({ error: 'Internal server error.' });
+    console.error("[Create Room Error]", err);
+    return res.status(500).json({ error: "Internal server error." });
   }
 });
 
 // Lookup room by slug or code
-app.get('/api/rooms/lookup', (req, res) => {
+app.get("/api/rooms/lookup", (req, res) => {
   const { slug, code } = req.query;
 
   if (!slug && !code) {
     return res.status(400).json({
-      error: 'Provide either slug or code.'
+      error: "Provide either slug or code."
     });
   }
 
   const room = findRoomBySlugOrCode({ slug, code });
 
   if (!room) {
-    return res.status(404).json({ error: 'Room not found.' });
+    return res.status(404).json({ error: "Room not found." });
   }
 
   return res.json({
@@ -333,7 +324,7 @@ app.get('/api/rooms/lookup', (req, res) => {
 });
 
 // Validate room password and issue temporary join token
-app.post('/api/rooms/:roomId/validate', async (req, res) => {
+app.post("/api/rooms/:roomId/validate", async (req, res) => {
   try {
     const { roomId } = req.params;
     const { password } = req.body;
@@ -341,17 +332,17 @@ app.post('/api/rooms/:roomId/validate', async (req, res) => {
     const room = ensureRoomExists(roomId);
 
     if (!room) {
-      return res.status(404).json({ error: 'Room not found.' });
+      return res.status(404).json({ error: "Room not found." });
     }
 
     if (room.users.size >= MAX_USERS_PER_ROOM) {
-      return res.status(403).json({ error: 'Room is full.' });
+      return res.status(403).json({ error: "Room is full." });
     }
 
-    const isValid = await bcrypt.compare(String(password || ''), room.passwordHash);
+    const isValid = await bcrypt.compare(String(password || ""), room.passwordHash);
 
     if (!isValid) {
-      return res.status(401).json({ error: 'Incorrect password.' });
+      return res.status(401).json({ error: "Incorrect password." });
     }
 
     cleanupExpiredTokens(room);
@@ -364,41 +355,41 @@ app.post('/api/rooms/:roomId/validate', async (req, res) => {
       token
     });
   } catch (err) {
-    console.error('[Validate Error]', err);
-    return res.status(500).json({ error: 'Internal server error.' });
+    console.error("[Validate Error]", err);
+    return res.status(500).json({ error: "Internal server error." });
   }
 });
 
 // Optional room info endpoint
-app.get('/api/rooms/:roomId', (req, res) => {
+app.get("/api/rooms/:roomId", (req, res) => {
   const room = ensureRoomExists(req.params.roomId);
 
   if (!room) {
-    return res.status(404).json({ error: 'Room not found.' });
+    return res.status(404).json({ error: "Room not found." });
   }
 
   return res.json(getRoomPublicInfo(room));
 });
 
 // SPA room route
-app.get('/room/:slug', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+app.get("/room/:slug", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // API 404 fallback
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'Endpoint not found.' });
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: "Endpoint not found." });
 });
 
 // Frontend catch-all
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 // ───────────────────────────────────────────────────────────────
 // Socket.IO Logic
 // ───────────────────────────────────────────────────────────────
-io.on('connection', (socket) => {
+io.on("connection", (socket) => {
   console.log(`[Socket Connected] ${socket.id}`);
 
   let currentRoomId = null;
@@ -409,14 +400,14 @@ io.on('connection', (socket) => {
     return rooms.get(currentRoomId) || null;
   }
 
-  function leaveCurrentRoom(reason = 'left') {
+  function leaveCurrentRoom(reason = "left") {
     const room = getCurrentRoom();
     if (!room || !currentUser) return;
 
     room.users.delete(socket.id);
     socket.leave(currentRoomId);
 
-    socket.to(currentRoomId).emit('user-left', {
+    socket.to(currentRoomId).emit("user-left", {
       socketId: socket.id,
       username: currentUser.username,
       userCount: room.users.size,
@@ -443,27 +434,26 @@ io.on('connection', (socket) => {
     }
   }
 
-  // Join room
-  socket.on('join-room', ({ roomId, token, username }) => {
+  socket.on("join-room", ({ roomId, token, username }) => {
     try {
       const room = rooms.get(roomId);
 
       if (!room) {
-        return socket.emit('error-message', { message: 'Room not found.' });
+        return socket.emit("error-message", { message: "Room not found." });
       }
 
       cleanupExpiredTokens(room);
 
       if (!room.pendingTokens.has(token)) {
-        return socket.emit('error-message', {
-          message: 'Invalid or expired token. Please re-enter the password.'
+        return socket.emit("error-message", {
+          message: "Invalid or expired token. Please re-enter the password."
         });
       }
 
       if (room.users.size >= MAX_USERS_PER_ROOM) {
         room.pendingTokens.delete(token);
-        return socket.emit('error-message', {
-          message: 'Room is full.'
+        return socket.emit("error-message", {
+          message: "Room is full."
         });
       }
 
@@ -488,33 +478,31 @@ io.on('connection', (socket) => {
         `[User Joined] ${sanitizedName} → "${room.name}" (${room.users.size} users)`
       );
 
-      socket.emit('room-joined', {
+      socket.emit("room-joined", {
         room: getRoomPublicInfo(room),
         messages: room.messages.slice(-100),
         userId: socket.id
       });
 
-      socket.to(roomId).emit('user-joined', {
+      socket.to(roomId).emit("user-joined", {
         user: { ...currentUser, socketId: socket.id },
         userCount: room.users.size
       });
     } catch (err) {
-      console.error('[Join Room Error]', err);
-      socket.emit('error-message', { message: 'Failed to join room.' });
+      console.error("[Join Room Error]", err);
+      socket.emit("error-message", { message: "Failed to join room." });
     }
   });
 
-  // WebRTC signaling relay
-  socket.on('webrtc-signal', (payload = {}) => {
+  socket.on("webrtc-signal", (payload = {}) => {
     try {
       const room = getCurrentRoom();
       if (!room || !currentUser) return;
 
       const { to, type, offer, answer, candidate, username } = payload;
-
       if (!to || !type) return;
 
-      io.to(to).emit('webrtc-signal', {
+      io.to(to).emit("webrtc-signal", {
         from: socket.id,
         type,
         offer,
@@ -523,12 +511,11 @@ io.on('connection', (socket) => {
         username: username || currentUser.username
       });
     } catch (err) {
-      console.error('[WebRTC Signal Error]', err);
+      console.error("[WebRTC Signal Error]", err);
     }
   });
 
-  // Audio toggle
-  socket.on('toggle-audio', ({ isAudioOn }) => {
+  socket.on("toggle-audio", ({ isAudioOn }) => {
     try {
       const room = getCurrentRoom();
       if (!room || !currentUser) return;
@@ -536,17 +523,16 @@ io.on('connection', (socket) => {
       currentUser.isAudioOn = !!isAudioOn;
       room.users.set(socket.id, currentUser);
 
-      socket.to(currentRoomId).emit('user-toggle-audio', {
+      socket.to(currentRoomId).emit("user-toggle-audio", {
         socketId: socket.id,
         isAudioOn: currentUser.isAudioOn
       });
     } catch (err) {
-      console.error('[Toggle Audio Error]', err);
+      console.error("[Toggle Audio Error]", err);
     }
   });
 
-  // Video toggle
-  socket.on('toggle-video', ({ isVideoOn }) => {
+  socket.on("toggle-video", ({ isVideoOn }) => {
     try {
       const room = getCurrentRoom();
       if (!room || !currentUser) return;
@@ -554,17 +540,16 @@ io.on('connection', (socket) => {
       currentUser.isVideoOn = !!isVideoOn;
       room.users.set(socket.id, currentUser);
 
-      socket.to(currentRoomId).emit('user-toggle-video', {
+      socket.to(currentRoomId).emit("user-toggle-video", {
         socketId: socket.id,
         isVideoOn: currentUser.isVideoOn
       });
     } catch (err) {
-      console.error('[Toggle Video Error]', err);
+      console.error("[Toggle Video Error]", err);
     }
   });
 
-  // Chat message
-  socket.on('chat-message', ({ text }) => {
+  socket.on("chat-message", ({ text }) => {
     try {
       const room = getCurrentRoom();
       if (!room || !currentUser) return;
@@ -580,97 +565,92 @@ io.on('connection', (socket) => {
       };
 
       addRoomMessage(room, message);
-      io.to(currentRoomId).emit('chat-message', message);
+      io.to(currentRoomId).emit("chat-message", message);
     } catch (err) {
-      console.error('[Chat Message Error]', err);
+      console.error("[Chat Message Error]", err);
     }
   });
 
-  // File message
-  socket.on('file-message', ({ text, file }) => {
+  socket.on("file-message", ({ text, file }) => {
     try {
       const room = getCurrentRoom();
       if (!room || !currentUser) return;
 
-      if (!file || typeof file !== 'object') {
-        return socket.emit('error-message', {
-          message: 'Invalid file payload.'
+      if (!file || typeof file !== "object") {
+        return socket.emit("error-message", {
+          message: "Invalid file payload."
         });
       }
 
       const message = {
         id: uuidv4(),
         username: currentUser.username,
-        text: sanitize(text || '', 2000),
+        text: sanitize(text || "", 2000),
         file: {
-          name: sanitize(file.name || 'file', 120),
-          type: sanitize(file.type || 'application/octet-stream', 120),
+          name: sanitize(file.name || "file", 120),
+          type: sanitize(file.type || "application/octet-stream", 120),
           size: Number(file.size || 0),
-          data: typeof file.data === 'string' ? file.data : ''
+          data: typeof file.data === "string" ? file.data : ""
         },
         timestamp: new Date().toISOString()
       };
 
       addRoomMessage(room, message);
-      io.to(currentRoomId).emit('file-message', message);
+      io.to(currentRoomId).emit("file-message", message);
     } catch (err) {
-      console.error('[File Message Error]', err);
-      socket.emit('error-message', {
-        message: 'Failed to send file.'
+      console.error("[File Message Error]", err);
+      socket.emit("error-message", {
+        message: "Failed to send file."
       });
     }
   });
 
-  // Typing indicators
-  socket.on('typing-start', () => {
+  socket.on("typing-start", () => {
     try {
       if (!currentRoomId || !currentUser) return;
 
-      socket.to(currentRoomId).emit('typing-start', {
+      socket.to(currentRoomId).emit("typing-start", {
         username: currentUser.username
       });
     } catch (err) {
-      console.error('[Typing Start Error]', err);
+      console.error("[Typing Start Error]", err);
     }
   });
 
-  socket.on('typing-stop', () => {
+  socket.on("typing-stop", () => {
     try {
       if (!currentRoomId || !currentUser) return;
 
-      socket.to(currentRoomId).emit('typing-stop', {
+      socket.to(currentRoomId).emit("typing-stop", {
         username: currentUser.username
       });
     } catch (err) {
-      console.error('[Typing Stop Error]', err);
+      console.error("[Typing Stop Error]", err);
     }
   });
 
-  // Reactions
-  socket.on('send-reaction', ({ emoji }) => {
+  socket.on("send-reaction", ({ emoji }) => {
     try {
       if (!currentRoomId || !currentUser) return;
 
-      const cleanEmoji = sanitize(String(emoji || ''), 20);
+      const cleanEmoji = sanitize(String(emoji || ""), 20);
       if (!cleanEmoji) return;
 
-      io.to(currentRoomId).emit('reaction', {
+      io.to(currentRoomId).emit("reaction", {
         emoji: cleanEmoji,
         username: currentUser.username,
         socketId: socket.id
       });
     } catch (err) {
-      console.error('[Reaction Error]', err);
+      console.error("[Reaction Error]", err);
     }
   });
 
-  // Optional manual leave event, if you ever want it
-  socket.on('leave-room', () => {
-    leaveCurrentRoom('left');
+  socket.on("leave-room", () => {
+    leaveCurrentRoom("left");
   });
 
-  // Disconnect
-  socket.on('disconnect', (reason) => {
+  socket.on("disconnect", (reason) => {
     console.log(`[Socket Disconnected] ${socket.id} (${reason})`);
     leaveCurrentRoom(reason);
   });
@@ -697,41 +677,35 @@ setInterval(() => {
 // ───────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`
 ╔══════════════════════════════════════════════════╗
 ║ 🚀 NEXUS Platform running on port ${PORT}
-║ 📡 Environment: ${process.env.NODE_ENV || 'development'}
+║ 📡 Environment: ${process.env.NODE_ENV || "development"}
 ║ 🌐 http://localhost:${PORT}
 ╚══════════════════════════════════════════════════╝
-`);
+  `);
 });
 
 // ───────────────────────────────────────────────────────────────
 // Graceful Shutdown
 // ───────────────────────────────────────────────────────────────
-process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received. Shutting down gracefully...');
+function shutdown(signal) {
+  console.log(`[Server] ${signal} received. Shutting down gracefully...`);
 
-  io.emit('server-shutdown', {
-    message: 'Server is restarting. Please reconnect shortly.'
+  io.emit("server-shutdown", {
+    message: "Server is restarting. Please reconnect shortly."
   });
 
   server.close(() => {
-    console.log('[Server] Closed.');
+    console.log("[Server] Closed.");
     process.exit(0);
   });
-});
 
-process.on('SIGINT', () => {
-  console.log('[Server] SIGINT received. Shutting down gracefully...');
+  setTimeout(() => {
+    process.exit(1);
+  }, 10000).unref();
+}
 
-  io.emit('server-shutdown', {
-    message: 'Server is shutting down. Please reconnect shortly.'
-  });
-
-  server.close(() => {
-    console.log('[Server] Closed.');
-    process.exit(0);
-  });
-});
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
