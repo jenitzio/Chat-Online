@@ -1,4 +1,5 @@
 # **Nexus Ultimate**
+![Nexus_Logo](https://github.com/user-attachments/assets/23e2872e-0e39-4f94-ac1b-da35835c431e)
 
 A high-performance, real-time online chat application built with a focus on modern aesthetics, security, and ultra-low latency. Nexus Ultimate combines a premium glassmorphic interface with integrated artificial intelligence to deliver a seamless communication experience.
 
