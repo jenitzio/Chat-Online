@@ -1,20 +1,23 @@
 {
-  "name": "nexus-chat-server",
-  "version": "2.0.0",
-  "description": "NEXUS real-time chat platform server",
+  "name": "nexus-platform",
+  "version": "2.0.1",
+  "description": "NEXUS real-time communication platform server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "compression": "^1.7.4",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
     "express": "^4.21.2",
-    "helmet": "^8.0.0",
+    "helmet": "^8.1.0",
     "socket.io": "^4.8.1",
-    "uuid": "^11.0.5"
+    "uuid": "^11.1.0"
   }
 }
