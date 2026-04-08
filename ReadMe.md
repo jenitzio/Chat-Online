@@ -39,8 +39,10 @@ Sub-50ms Latency: Optimized data handling and an efficient event-driven architec
 Native AI Integration: Includes built-in artificial intelligence to assist users directly within the chat environment.
 
 Lightweight Core: Developed using vanilla JavaScript, HTML5, and CSS3 to ensure fast initial load times and high-performance animations without the overhead of heavy frameworks.
-Technical Stack
 
+
+
+## Technical Stack
 Frontend: HTML5, CSS3, and Vanilla JavaScript (ES6+).
 
 Visuals: Particles.js for interactive 3D background effects.
